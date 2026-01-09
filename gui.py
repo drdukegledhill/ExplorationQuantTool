@@ -36,7 +36,10 @@ def process_image(img_path, grid_size, threshold_percentage):
             # Crop the cell from the image
             cell = img.crop((left, upper, right, lower))
             # Get pixel data from the cell
-            pixels = list(cell.get_flattened_data())
+            try:
+                pixels = list(cell.get_flattened_data())
+            except AttributeError:
+                pixels = list(cell.getdata())
             # Count non-black pixels
             non_zero_count = sum(1 for p in pixels if p > 0)
             # Total pixels in cell
