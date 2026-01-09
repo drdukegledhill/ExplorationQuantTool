@@ -87,7 +87,8 @@ else:
         results.append((img_file.name, normalised_value))
     
     # Write the results to a CSV file in the selected folder
-    csv_path = os.path.join(images_folder, 'results.csv')
+    csv_filename = f"results_{grid_size}_{int(threshold_percentage)}.csv"
+    csv_path = os.path.join(images_folder, csv_filename)
     with open(csv_path, 'w', newline='') as csvfile:
         writer = csv.writer(csvfile)
         # Write header row

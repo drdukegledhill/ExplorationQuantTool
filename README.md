@@ -46,7 +46,7 @@ pip install pillow
    python run.py
    ```
 3. A folder selection dialog will appear; choose the folder containing your images.
-4. View results in the console and in `results.csv` (saved in the selected folder).
+4. View results in the console and in `results_{grid_size}_{threshold_percentage}.csv` (e.g., `results_10_25.csv`, saved in the selected folder).
 
 ## Configuration
 
@@ -55,7 +55,7 @@ pip install pillow
 
 ## Output
 
-- **CSV Files**: Results saved as `results.csv` (command-line) or `results_{grid}_{threshold}.csv` (GUI).
+- **CSV Files**: Results saved as `results_{grid_size}_{threshold_percentage}.csv` (e.g., `results_10_25.csv`).
 - **Console** (command-line only): Displays configuration and a table with image names and normalised values.
 
 ## Example
