@@ -24,12 +24,12 @@ pip install pillow
 
 ## Usage
 
-1. Run the script:
+1. Adjust `threshold_percentage` and `grid_size` variables in the script if needed.
+2. Run the script:
    ```bash
    python run.py
    ```
-2. A folder selection dialog will appear; choose the folder containing your images.
-3. Adjust `threshold_percentage` and `grid_size` variables in the script if needed (before running).
+3. A folder selection dialog will appear; choose the folder containing your images.
 4. View results in the console and in `results.csv` (saved in the selected folder).
 
 ## Configuration
