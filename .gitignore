@@ -2,3 +2,5 @@ imagestoprocess/
 results*.csv
 **/results*.csv
 .DS_Store
+__pycache__/
+*.pyc
