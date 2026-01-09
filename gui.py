@@ -110,7 +110,7 @@ def display_image():
     photo = ImageTk.PhotoImage(img_resized)
     # Clear canvas
     canvas.delete("all")
-    # Center the image on the canvas
+    # Centre the image on the canvas
     x = (canvas_width - new_width) // 2
     y = (canvas_height - new_height) // 2
     canvas.create_image(x, y, anchor=tk.NW, image=photo)
