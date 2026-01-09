@@ -15,6 +15,7 @@ A Python tool for quantitative analysis of images using grid-based pixel density
 
 - Python 3.x
 - Pillow (PIL) library for image processing
+- Tkinter (usually included with Python for GUI dialogs)
 
 Install dependencies:
 ```bash
