@@ -4,7 +4,7 @@ from pathlib import Path  # For handling file paths in an object-oriented way
 from PIL import Image, ImageDraw, ImageTk  # For image processing and displaying in tkinter
 import csv  # For writing CSV files
 import tkinter as tk  # For creating the GUI
-from tkinter import filedialog, ttk, messagebox  # For folder selection, styled widgets, and message boxes
+from tkinter import filedialog, ttk, messagebox, font  # For folder selection, styled widgets, message boxes, and fonts
 
 # Function to process a single image and return the normalised value and image with grid overlay
 def process_image(img_path, grid_size, threshold_percentage):
@@ -218,8 +218,8 @@ canvas = tk.Canvas(display_frame, bg='gray')
 canvas.pack(fill=tk.BOTH, expand=True)
 canvas.bind('<Configure>', lambda e: display_image())  # Redisplay on resize
 
-# Label for normalized value
-value_label = ttk.Label(display_frame, text="Normalised Value: ")
+# Label for normalized value with larger font
+value_label = ttk.Label(display_frame, text="Normalised Value: ", font=("Helvetica", 14, "bold"))
 value_label.pack(side=tk.RIGHT, padx=20)
 
 # Initial display of the first image
