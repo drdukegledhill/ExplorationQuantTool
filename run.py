@@ -1,15 +1,22 @@
 # Import necessary modules
-import os  # For operating system interactions (though not used here, included for completeness)
+import os  # For operating system interactions
 from pathlib import Path  # For handling file paths in an object-oriented way
 from PIL import Image  # For image processing using the Pillow library
 import csv  # For writing CSV files
+import tkinter as tk  # For GUI folder selection
+from tkinter import filedialog  # For the folder dialog
 
-# Configuration variables
 threshold_percentage = 25  # The minimum percentage of non-black pixels required for a grid cell to be counted as 1
 grid_size = 10  # The number of rows and columns in the grid (e.g., 10x10 = 100 cells)
 
-# Define the path to the folder containing the images
-images_folder = Path("imagestoprocess")
+# Prompt user to select the folder containing the images
+root = tk.Tk()
+root.withdraw()  # Hide the main window
+folder_selected = filedialog.askdirectory(title="Select folder containing images")
+if not folder_selected:
+    print("No folder selected. Exiting.")
+    exit(1)
+images_folder = Path(folder_selected)
 
 # Check if the images folder exists; if not, print an error and exit
 if not images_folder.exists():
@@ -78,8 +85,9 @@ else:
         # Append the image name and its normalized value to the results list
         results.append((img_file.name, normalized_value))
     
-    # Write the results to a CSV file
-    with open('results.csv', 'w', newline='') as csvfile:
+    # Write the results to a CSV file in the selected folder
+    csv_path = os.path.join(images_folder, 'results.csv')
+    with open(csv_path, 'w', newline='') as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(['Image Name', 'Normalized Value'])
         for name, value in results:

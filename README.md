@@ -23,14 +23,13 @@ pip install pillow
 
 ## Usage
 
-1. Place your images in a folder (e.g., `imagestoprocess`).
-2. Update the `images_folder` variable in `run.py` to point to your image folder.
-3. Adjust `threshold_percentage` and `grid_size` as needed.
-4. Run the script:
+1. Run the script:
    ```bash
    python run.py
    ```
-5. View results in the console and in `results.csv`.
+2. A folder selection dialog will appear; choose the folder containing your images.
+3. Adjust `threshold_percentage` and `grid_size` variables in the script if needed (before running).
+4. View results in the console and in `results.csv` (saved in the selected folder).
 
 ## Configuration
 
@@ -61,4 +60,5 @@ See LICENSE file.
 
 ## Credits
 
+Initial developer: Dr. Duke Gledhill  
 Developed for exploration and quantitative analysis of visual data.
