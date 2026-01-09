@@ -1,3 +1,4 @@
 imagestoprocess/
 results.csv
+**/results.csv
 .DS_Store
