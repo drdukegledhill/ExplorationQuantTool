@@ -80,16 +80,16 @@ else:
                     if percentage >= threshold_percentage:
                         total_value += 1
         
-        # Normalize the total value to a percentage out of 100
-        normalized_value = round((total_value / (grid_size ** 2)) * 100, 1)
-        # Append the image name and its normalized value to the results list
-        results.append((img_file.name, normalized_value))
+        # Normalise the total value to a percentage out of 100
+        normalised_value = round((total_value / (grid_size ** 2)) * 100, 1)
+        # Append the image name and its normalised value to the results list
+        results.append((img_file.name, normalised_value))
     
     # Write the results to a CSV file in the selected folder
     csv_path = os.path.join(images_folder, 'results.csv')
     with open(csv_path, 'w', newline='') as csvfile:
         writer = csv.writer(csvfile)
-        writer.writerow(['Image Name', 'Normalized Value'])
+        writer.writerow(['Image Name', 'Normalised Value'])
         for name, value in results:
             writer.writerow([name, value])
     
@@ -99,7 +99,7 @@ else:
     print()
     
     # Print the header of the output table
-    print("| Image Name | Normalized Value (out of 100) |")
+    print("| Image Name | Normalised Value (out of 100) |")
     print("|------------|-------------------------------|")
     # Print each row of the table
     for name, value in results:

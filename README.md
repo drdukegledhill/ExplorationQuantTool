@@ -1,13 +1,13 @@
 # ExplorationQuantTool
 
-A Python tool for quantitative analysis of images using grid-based pixel density evaluation. This tool processes images by dividing them into a configurable grid and calculating the percentage of non-black pixels in each cell, then normalizing the results.
+A Python tool for quantitative analysis of images using grid-based pixel density evaluation. This tool processes images by dividing them into a configurable grid and calculating the percentage of non-black pixels in each cell, then normalising the results.
 
 ## Features
 
 - **Grid Analysis**: Splits images into a user-defined grid (default 10x10).
 - **Pixel Density Calculation**: Counts non-black pixels in each grid cell.
 - **Threshold-Based Evaluation**: Assigns a value of 1 to cells where non-black pixels exceed a threshold percentage (default 25%).
-- **Normalization**: Outputs results normalized to a scale of 0-100, regardless of grid size.
+- **Normalisation**: Outputs results normalised to a scale of 0-100, regardless of grid size.
 - **Output Formats**: Generates both a CSV file and console table for results.
 - **Configurable Parameters**: Easily adjust grid size and threshold via variables at the top of the script.
 
@@ -39,17 +39,17 @@ pip install pillow
 
 ## Output
 
-- **Console**: Displays configuration, then a table with image names and normalized values.
+- **Console**: Displays configuration, then a table with image names and normalised values.
 - **CSV File**: `results.csv` contains the same data in CSV format.
 
 ## Example
 
 For a 10x10 grid with 25% threshold:
-- If 30 out of 100 cells meet the threshold, the normalized value is 30.0.
+- If 30 out of 100 cells meet the threshold, the normalised value is 30.0.
 
 ## Educational/Research Use
 
-This tool is designed for educational and research purposes. It demonstrates image processing techniques, grid-based analysis, and data normalization. The example images in `Flat heatmaps/` and `Triangle HeatMaps/` illustrate different heatmap patterns.
+This tool is designed for educational and research purposes. It demonstrates image processing techniques, grid-based analysis, and data normalisation. The example images in `Flat heatmaps/` and `Triangle HeatMaps/` illustrate different heatmap patterns.
 
 ## Contributing
 
