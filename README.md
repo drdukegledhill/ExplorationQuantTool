@@ -8,14 +8,16 @@ A Python tool for quantitative analysis of images using grid-based pixel density
 - **Pixel Density Calculation**: Counts non-black pixels in each grid cell.
 - **Threshold-Based Evaluation**: Assigns a value of 1 to cells where non-black pixels exceed a threshold percentage (default 25%).
 - **Normalisation**: Outputs results normalised to a scale of 0-100, regardless of grid size.
-- **Output Formats**: Generates both a CSV file and console table for results.
-- **Configurable Parameters**: Easily adjust grid size and threshold via variables at the top of the script.
+- **Output Formats**: Generates CSV files with results.
+- **Configurable Parameters**: Easily adjust grid size and threshold.
+- **GUI Version**: Interactive GUI for real-time preview and batch processing.
+- **Command-Line Version**: Script for batch processing without GUI.
 
 ## Requirements
 
 - Python 3.x
 - Pillow (PIL) library for image processing
-- Tkinter (usually included with Python for GUI dialogs)
+- Tkinter (usually included with Python for GUI)
 
 Install dependencies:
 ```bash
@@ -24,7 +26,21 @@ pip install pillow
 
 ## Usage
 
-1. Adjust `threshold_percentage` and `grid_size` variables in the script if needed.
+### GUI Version (Recommended for Interactive Use)
+
+1. Run the GUI script:
+   ```bash
+   python gui.py
+   ```
+2. Select a folder containing images.
+3. The first image will be displayed with grid overlay and normalized value.
+4. Adjust grid size and threshold using the input fields.
+5. Click "Update" to recalculate for the current image.
+6. Click "Apply to Folder" to process all images and save results to `results_{grid}_{threshold}.csv`.
+
+### Command-Line Version
+
+1. Adjust `threshold_percentage` and `grid_size` variables in `run.py` if needed.
 2. Run the script:
    ```bash
    python run.py
@@ -39,8 +55,8 @@ pip install pillow
 
 ## Output
 
-- **Console**: Displays configuration, then a table with image names and normalised values.
-- **CSV File**: `results.csv` contains the same data in CSV format.
+- **CSV Files**: Results saved as `results.csv` (command-line) or `results_{grid}_{threshold}.csv` (GUI).
+- **Console** (command-line only): Displays configuration and a table with image names and normalised values.
 
 ## Example
 

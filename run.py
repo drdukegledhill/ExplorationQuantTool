@@ -1,22 +1,23 @@
-# Import necessary modules
-import os  # For operating system interactions
+# Import necessary modules for file handling, image processing, CSV writing, and GUI
+import os  # For operating system interactions and getting current directory
 from pathlib import Path  # For handling file paths in an object-oriented way
 from PIL import Image  # For image processing using the Pillow library
 import csv  # For writing CSV files
 import tkinter as tk  # For GUI folder selection
 from tkinter import filedialog  # For the folder dialog
 
+# Default parameters
 threshold_percentage = 25  # The minimum percentage of non-black pixels required for a grid cell to be counted as 1
 grid_size = 10  # The number of rows and columns in the grid (e.g., 10x10 = 100 cells)
 
 # Prompt user to select the folder containing the images
-root = tk.Tk()
-root.withdraw()  # Hide the main window
-folder_selected = filedialog.askdirectory(title="Select folder containing images")
+root = tk.Tk()  # Create tkinter window
+root.withdraw()  # Hide the window
+folder_selected = filedialog.askdirectory(title="Select folder containing images", initialdir=os.getcwd())  # Open folder dialog starting in current directory
 if not folder_selected:
     print("No folder selected. Exiting.")
-    exit(1)
-images_folder = Path(folder_selected)
+    exit(1)  # Exit if no folder selected
+images_folder = Path(folder_selected)  # Convert to Path object
 
 # Check if the images folder exists; if not, print an error and exit
 if not images_folder.exists():
@@ -89,7 +90,9 @@ else:
     csv_path = os.path.join(images_folder, 'results.csv')
     with open(csv_path, 'w', newline='') as csvfile:
         writer = csv.writer(csvfile)
+        # Write header row
         writer.writerow(['Image Name', 'Normalised Value'])
+        # Write each result
         for name, value in results:
             writer.writerow([name, value])
     
