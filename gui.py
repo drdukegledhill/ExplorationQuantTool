@@ -219,7 +219,7 @@ canvas.pack(fill=tk.BOTH, expand=True)
 canvas.bind('<Configure>', lambda e: display_image())  # Redisplay on resize
 
 # Label for normalized value with larger font
-value_label = ttk.Label(display_frame, text="Normalised Value: ", font=("Helvetica", 14, "bold"))
+value_label = ttk.Label(display_frame, text="Normalised Value: ", font=("Helvetica", 18, "bold"))
 value_label.pack(side=tk.RIGHT, padx=20)
 
 # Initial display of the first image
