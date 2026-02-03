@@ -1,7 +1,7 @@
 # Import necessary modules for file handling, image processing, CSV writing, and GUI
 import os  # For operating system interactions and getting current directory
 from pathlib import Path  # For handling file paths in an object-oriented way
-from PIL import Image, ImageDraw, ImageTk  # For image processing and displaying in tkinter
+from PIL import Image, ImageDraw, ImageTk, ImageOps  # For image processing and displaying in tkinter
 import csv  # For writing CSV files
 import math  # For gcd and divisor calculation
 import tkinter as tk  # For creating the GUI
@@ -18,7 +18,7 @@ def _common_divisors(a, b):
     return sorted(divisors)
 
 # Function to process a single image and return the normalised value and image with grid overlay
-def process_image(img_path, cell_size_px, threshold_percentage):
+def process_image(img_path, cell_size_px, threshold_percentage, mask_img):
     # Open the image file
     img = Image.open(img_path)
     # Get image dimensions
@@ -32,6 +32,15 @@ def process_image(img_path, cell_size_px, threshold_percentage):
         raise ValueError("Cell size must be a positive integer.")
     if width % cell_size_px != 0 or height % cell_size_px != 0:
         raise ValueError("Cell size must divide both image width and height.")
+
+    if mask_img is not None and mask_img.size != img.size:
+        raise ValueError("Mask size does not match image size.")
+
+    # Apply mask if present (white = remove, black = keep)
+    if mask_img is not None:
+        black_bg = Image.new('L', img.size, 0)
+        # Invert so white removes and black keeps
+        img = Image.composite(img, black_bg, ImageOps.invert(mask_img))
 
     # Calculate grid dimensions based on cell size
     grid_cols = width // cell_size_px
@@ -99,7 +108,7 @@ def process_and_display():
         if cell_size_px <= 0 or threshold < 0 or threshold > 100:
             raise ValueError
         # Process the image
-        current_value, current_img = process_image(current_img_path, cell_size_px, threshold)
+        current_value, current_img = process_image(current_img_path, cell_size_px, threshold, mask_img)
         # Update the value label
         value_label.config(text=f"Normalised Value: {current_value}")
         # Display the image
@@ -153,6 +162,12 @@ def apply_to_folder():
         for img_file in image_files:
             with Image.open(img_file) as img:
                 width, height = img.size
+            if mask_img is not None and mask_img.size != (width, height):
+                messagebox.showerror(
+                    "Invalid Mask",
+                    f"mask.png size does not match {img_file.name} ({width}x{height})."
+                )
+                return
             if width % cell_size_px != 0 or height % cell_size_px != 0:
                 messagebox.showerror(
                     "Invalid Grid Size",
@@ -160,7 +175,7 @@ def apply_to_folder():
                 )
                 return
             # Get value for each image
-            value, _ = process_image(img_file, cell_size_px, threshold)
+            value, _ = process_image(img_file, cell_size_px, threshold, mask_img)
             # Add to results
             results.append((img_file.name, value))
         # Create CSV filename with grid and threshold
@@ -205,6 +220,13 @@ if not image_files:
 
 current_img_path = image_files[0]  # Use the first image for display
 
+# Optional mask (mask.png) in the same folder
+mask_path = images_folder / "mask.png"
+mask_img = None
+if mask_path.exists():
+    with Image.open(mask_path) as m:
+        mask_img = m.convert('L') if m.mode != 'L' else m.copy()
+
 # Create GUI on the same root
 root.deiconify()  # Show the window
 root.title("Image Grid Analysis")  # Set window title
@@ -217,6 +239,9 @@ input_frame.pack(pady=10)
 first_img = Image.open(current_img_path)
 first_width, first_height = first_img.size
 first_img.close()
+if mask_img is not None and mask_img.size != (first_width, first_height):
+    messagebox.showerror("Invalid Mask", "mask.png size must match the images.")
+    exit(1)
 cell_sizes = _common_divisors(first_width, first_height)
 if not cell_sizes:
     messagebox.showerror("Invalid Image", "Could not determine valid cell sizes.")

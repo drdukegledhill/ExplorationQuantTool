@@ -11,6 +11,7 @@ A Python tool for quantitative analysis of images using grid-based pixel density
 - **Output Formats**: Generates CSV files with results.
 - **Configurable Parameters**: Easily adjust cell size (px) and threshold.
 - **GUI Version**: Interactive GUI for real-time preview and batch processing with dropdown cell sizes.
+- **Mask Support**: If `mask.png` exists in the image folder, it is applied to all images.
 - **Command-Line Version**: Script for batch processing without GUI.
 
 ## Requirements
@@ -56,6 +57,7 @@ A Python tool for quantitative analysis of images using grid-based pixel density
 4. Adjust cell size (px) and threshold using the dropdown/input.
 5. The preview updates automatically on cell size change, Enter, or focus loss in the threshold field (you can still click "Update").
 6. Click "Apply to Folder" to process all images and save results to `results_{cell_size}px_{threshold}.csv`.
+7. Optional: Add a `mask.png` in the folder to exclude regions (white removes, black keeps).
 
 ### Command-Line Version
 
@@ -67,11 +69,13 @@ A Python tool for quantitative analysis of images using grid-based pixel density
    ```
 3. A folder selection dialog will appear; choose the folder containing your images.
 4. View results in the console and in `results_{cell_size_px}px_{threshold_percentage}.csv` (e.g., `results_50px_50.csv`, saved in the selected folder).
+5. Optional: Add a `mask.png` in the folder to exclude regions (white removes, black keeps).
 
 ## Configuration
 
 - `threshold_percentage`: Minimum percentage of non-black pixels required for a grid cell to be counted (default: 50).
 - `cell_size_px`: Cell size in pixels; must divide both image width and height (default: 50).
+- `mask.png`: Optional grayscale image in the folder. White removes pixels; black keeps.
 
 ## Output
 

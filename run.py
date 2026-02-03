@@ -1,14 +1,25 @@
 # Import necessary modules for file handling, image processing, CSV writing, and GUI
 import os  # For operating system interactions and getting current directory
 from pathlib import Path  # For handling file paths in an object-oriented way
-from PIL import Image  # For image processing using the Pillow library
+from PIL import Image, ImageOps  # For image processing using the Pillow library
+import math  # For gcd and divisor calculation
 import csv  # For writing CSV files
 import tkinter as tk  # For GUI folder selection
 from tkinter import filedialog  # For the folder dialog
 
 # Default parameters
 threshold_percentage = 50  # The minimum percentage of non-black pixels required for a grid cell to be counted as 1
-cell_size_px = 50  # Grid cell size in pixels; must divide both image width and height
+DEFAULT_CELL_SIZE_PX = 50  # Preferred cell size in pixels
+
+def _common_divisors(a, b):
+    gcd_value = math.gcd(a, b)
+    divisors = set()
+    limit = int(math.isqrt(gcd_value))
+    for i in range(1, limit + 1):
+        if gcd_value % i == 0:
+            divisors.add(i)
+            divisors.add(gcd_value // i)
+    return sorted(divisors)
 
 # Prompt user to select the folder containing the images
 root = tk.Tk()  # Create tkinter window
@@ -34,6 +45,31 @@ image_files = [f for f in images_folder.iterdir() if f.is_file() and f.suffix.lo
 if not image_files:
     print("No image files found in the images folder.")
 else:
+    mask_path = images_folder / "mask.png"
+    mask_img = None
+    if mask_path.exists():
+        with Image.open(mask_path) as m:
+            mask_img = m.convert('L') if m.mode != 'L' else m.copy()
+
+    with Image.open(image_files[0]) as first_img:
+        first_width, first_height = first_img.size
+    if mask_img is not None and mask_img.size != (first_width, first_height):
+        print("mask.png size must match the images.")
+        exit(1)
+    cell_sizes = _common_divisors(first_width, first_height)
+    if not cell_sizes:
+        print("Could not determine valid cell sizes for the first image.")
+        exit(1)
+    if DEFAULT_CELL_SIZE_PX in cell_sizes:
+        cell_size_px = DEFAULT_CELL_SIZE_PX
+    else:
+        smaller_or_equal = [s for s in cell_sizes if s <= DEFAULT_CELL_SIZE_PX]
+        cell_size_px = (smaller_or_equal[-1] if smaller_or_equal else cell_sizes[0])
+        print(
+            f"Default cell size {DEFAULT_CELL_SIZE_PX}px is invalid for {image_files[0].name} "
+            f"({first_width}x{first_height}). Using {cell_size_px}px instead."
+        )
+
     # Initialize a list to store results for each image
     results = []
     # Loop through each image file
@@ -42,16 +78,25 @@ else:
         img = Image.open(img_file)
         # Get the width and height of the image
         width, height = img.size
+
+        if mask_img is not None and mask_img.size != (width, height):
+            print(f"mask.png size does not match {img_file.name} ({width}x{height}).")
+            exit(1)
         
         # Convert the image to grayscale if it's not already in grayscale mode ('L')
         if img.mode != 'L':
             img = img.convert('L')
+
+        if mask_img is not None:
+            black_bg = Image.new('L', img.size, 0)
+            img = Image.composite(img, black_bg, ImageOps.invert(mask_img))
         
         if cell_size_px <= 0:
             print("Cell size must be a positive integer.")
             exit(1)
         if width % cell_size_px != 0 or height % cell_size_px != 0:
             print(f"Cell size {cell_size_px}px does not evenly divide {img_file.name} ({width}x{height}).")
+            print(f"Valid cell sizes for this image are: {', '.join(map(str, _common_divisors(width, height)))}")
             exit(1)
 
         # Calculate the grid dimensions and cell size
