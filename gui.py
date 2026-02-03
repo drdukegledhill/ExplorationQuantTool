@@ -3,11 +3,22 @@ import os  # For operating system interactions and getting current directory
 from pathlib import Path  # For handling file paths in an object-oriented way
 from PIL import Image, ImageDraw, ImageTk  # For image processing and displaying in tkinter
 import csv  # For writing CSV files
+import math  # For gcd and divisor calculation
 import tkinter as tk  # For creating the GUI
 from tkinter import filedialog, ttk, messagebox, font  # For folder selection, styled widgets, message boxes, and fonts
 
+def _common_divisors(a, b):
+    gcd_value = math.gcd(a, b)
+    divisors = set()
+    limit = int(math.isqrt(gcd_value))
+    for i in range(1, limit + 1):
+        if gcd_value % i == 0:
+            divisors.add(i)
+            divisors.add(gcd_value // i)
+    return sorted(divisors)
+
 # Function to process a single image and return the normalised value and image with grid overlay
-def process_image(img_path, grid_size, threshold_percentage):
+def process_image(img_path, cell_size_px, threshold_percentage):
     # Open the image file
     img = Image.open(img_path)
     # Get image dimensions
@@ -17,21 +28,26 @@ def process_image(img_path, grid_size, threshold_percentage):
     if img.mode != 'L':
         img = img.convert('L')
     
-    # Calculate cell dimensions based on grid size
-    cell_width = width // grid_size
-    cell_height = height // grid_size
+    if cell_size_px <= 0:
+        raise ValueError("Cell size must be a positive integer.")
+    if width % cell_size_px != 0 or height % cell_size_px != 0:
+        raise ValueError("Cell size must divide both image width and height.")
+
+    # Calculate grid dimensions based on cell size
+    grid_cols = width // cell_size_px
+    grid_rows = height // cell_size_px
     
     # Initialize total value counter
     total_value = 0
     
     # Loop through each grid cell
-    for i in range(grid_size):
-        for j in range(grid_size):
+    for i in range(grid_cols):
+        for j in range(grid_rows):
             # Define cell boundaries
-            left = i * cell_width
-            upper = j * cell_height
-            right = (i + 1) * cell_width
-            lower = (j + 1) * cell_height
+            left = i * cell_size_px
+            upper = j * cell_size_px
+            right = (i + 1) * cell_size_px
+            lower = (j + 1) * cell_size_px
             
             # Crop the cell from the image
             cell = img.crop((left, upper, right, lower))
@@ -53,15 +69,16 @@ def process_image(img_path, grid_size, threshold_percentage):
                     total_value += 1
     
     # Normalize the total value to a percentage out of 100
-    normalised_value = round((total_value / (grid_size ** 2)) * 100, 1)
+    normalised_value = round((total_value / (grid_cols * grid_rows)) * 100, 1)
     
     # Draw grid lines on the image
     draw = ImageDraw.Draw(img)
-    for i in range(1, grid_size):
+    for i in range(1, grid_cols):
         # Draw vertical grid lines
-        draw.line([(i * cell_width, 0), (i * cell_width, height)], fill=255, width=1)
+        draw.line([(i * cell_size_px, 0), (i * cell_size_px, height)], fill=255, width=1)
+    for i in range(1, grid_rows):
         # Draw horizontal grid lines
-        draw.line([(0, i * cell_height), (width, i * cell_height)], fill=255, width=1)
+        draw.line([(0, i * cell_size_px), (width, i * cell_size_px)], fill=255, width=1)
     
     # Return the normalized value and the image with grid
     return normalised_value, img
@@ -74,15 +91,15 @@ current_img = None  # Stores the current image with grid overlay
 def process_and_display():
     global current_value, current_img  # Access global variables
     try:
-        # Get grid size from input
-        grid_size = int(grid_entry.get())
+        # Get cell size from input
+        cell_size_px = int(cell_size_combo.get())
         # Get threshold from input
         threshold = float(threshold_entry.get())
         # Validate inputs
-        if grid_size <= 0 or threshold < 0 or threshold > 100:
+        if cell_size_px <= 0 or threshold < 0 or threshold > 100:
             raise ValueError
         # Process the image
-        current_value, current_img = process_image(current_img_path, grid_size, threshold)
+        current_value, current_img = process_image(current_img_path, cell_size_px, threshold)
         # Update the value label
         value_label.config(text=f"Normalised Value: {current_value}")
         # Display the image
@@ -123,23 +140,31 @@ def display_image():
 # Function to apply the current settings to all images in the folder and save results to CSV
 def apply_to_folder():
     try:
-        # Get grid size from input
-        grid_size = int(grid_entry.get())
+        # Get cell size from input
+        cell_size_px = int(cell_size_combo.get())
         # Get threshold from input
         threshold = float(threshold_entry.get())
         # Validate inputs
-        if grid_size <= 0 or threshold < 0 or threshold > 100:
+        if cell_size_px <= 0 or threshold < 0 or threshold > 100:
             raise ValueError
         # Initialize results list
         results = []
         # Process each image in the folder
         for img_file in image_files:
+            with Image.open(img_file) as img:
+                width, height = img.size
+            if width % cell_size_px != 0 or height % cell_size_px != 0:
+                messagebox.showerror(
+                    "Invalid Grid Size",
+                    f"Cell size {cell_size_px}px does not evenly divide {img_file.name} ({width}x{height})."
+                )
+                return
             # Get value for each image
-            value, _ = process_image(img_file, grid_size, threshold)
+            value, _ = process_image(img_file, cell_size_px, threshold)
             # Add to results
             results.append((img_file.name, value))
         # Create CSV filename with grid and threshold
-        csv_filename = f"results_{grid_size}_{int(threshold)}.csv"
+        csv_filename = f"results_{cell_size_px}px_{int(threshold)}.csv"
         # Full path for CSV
         csv_path = images_folder / csv_filename
         # Write to CSV
@@ -154,7 +179,7 @@ def apply_to_folder():
         messagebox.showinfo("Done", f"Results saved to {csv_filename}")
     except ValueError:
         # Show error for invalid inputs
-        messagebox.showerror("Invalid Input", "Please enter valid grid size (positive integer) and threshold (0-100).")
+        messagebox.showerror("Invalid Input", "Please enter valid cell size (positive integer) and threshold (0-100).")
 
 # Prompt user to select the folder containing the images
 root = tk.Tk()  # Create main tkinter window
@@ -188,17 +213,29 @@ root.title("Image Grid Analysis")  # Set window title
 input_frame = ttk.Frame(root)
 input_frame.pack(pady=10)
 
-# Grid size input
-ttk.Label(input_frame, text="Grid Size:").grid(row=0, column=0, padx=5)
-grid_entry = ttk.Entry(input_frame)
-grid_entry.insert(0, "10")  # Default value
-grid_entry.grid(row=0, column=1, padx=5)
+# Cell size input (pixels)
+first_img = Image.open(current_img_path)
+first_width, first_height = first_img.size
+first_img.close()
+cell_sizes = _common_divisors(first_width, first_height)
+if not cell_sizes:
+    messagebox.showerror("Invalid Image", "Could not determine valid cell sizes.")
+    exit(1)
+
+ttk.Label(input_frame, text="Cell Size (px):").grid(row=0, column=0, padx=5)
+cell_size_combo = ttk.Combobox(input_frame, values=cell_sizes, state="readonly", width=10)
+default_cell_size = next((s for s in reversed(cell_sizes) if s <= 50), cell_sizes[0])
+cell_size_combo.set(str(default_cell_size))
+cell_size_combo.grid(row=0, column=1, padx=5)
+cell_size_combo.bind("<<ComboboxSelected>>", lambda e: process_and_display())
 
 # Threshold input
 ttk.Label(input_frame, text="Threshold (%):").grid(row=1, column=0, padx=5)
 threshold_entry = ttk.Entry(input_frame)
-threshold_entry.insert(0, "25")  # Default value
+threshold_entry.insert(0, "50")  # Default value
 threshold_entry.grid(row=1, column=1, padx=5)
+threshold_entry.bind("<Return>", lambda e: process_and_display())
+threshold_entry.bind("<FocusOut>", lambda e: process_and_display())
 
 # Frame for buttons
 button_frame = ttk.Frame(root)

@@ -7,8 +7,8 @@ import tkinter as tk  # For GUI folder selection
 from tkinter import filedialog  # For the folder dialog
 
 # Default parameters
-threshold_percentage = 25  # The minimum percentage of non-black pixels required for a grid cell to be counted as 1
-grid_size = 10  # The number of rows and columns in the grid (e.g., 10x10 = 100 cells)
+threshold_percentage = 50  # The minimum percentage of non-black pixels required for a grid cell to be counted as 1
+cell_size_px = 50  # Grid cell size in pixels; must divide both image width and height
 
 # Prompt user to select the folder containing the images
 root = tk.Tk()  # Create tkinter window
@@ -47,22 +47,29 @@ else:
         if img.mode != 'L':
             img = img.convert('L')
         
-        # Calculate the width and height of each grid cell
-        cell_width = width // grid_size
-        cell_height = height // grid_size
+        if cell_size_px <= 0:
+            print("Cell size must be a positive integer.")
+            exit(1)
+        if width % cell_size_px != 0 or height % cell_size_px != 0:
+            print(f"Cell size {cell_size_px}px does not evenly divide {img_file.name} ({width}x{height}).")
+            exit(1)
+
+        # Calculate the grid dimensions and cell size
+        grid_cols = width // cell_size_px
+        grid_rows = height // cell_size_px
         
         # Initialize the total value for this image (sum of grid cells with >= threshold_percentage non-black pixels)
         total_value = 0
         
         # Loop through each row of the grid
-        for i in range(grid_size):
+        for i in range(grid_cols):
             # Loop through each column of the grid
-            for j in range(grid_size):
+            for j in range(grid_rows):
                 # Calculate the coordinates for the current grid cell
-                left = i * cell_width
-                upper = j * cell_height
-                right = (i + 1) * cell_width
-                lower = (j + 1) * cell_height
+                left = i * cell_size_px
+                upper = j * cell_size_px
+                right = (i + 1) * cell_size_px
+                lower = (j + 1) * cell_size_px
                 
                 # Crop the image to get the current grid cell
                 cell = img.crop((left, upper, right, lower))
@@ -82,12 +89,12 @@ else:
                         total_value += 1
         
         # Normalise the total value to a percentage out of 100
-        normalised_value = round((total_value / (grid_size ** 2)) * 100, 1)
+        normalised_value = round((total_value / (grid_cols * grid_rows)) * 100, 1)
         # Append the image name and its normalised value to the results list
         results.append((img_file.name, normalised_value))
     
     # Write the results to a CSV file in the selected folder
-    csv_filename = f"results_{grid_size}_{int(threshold_percentage)}.csv"
+    csv_filename = f"results_{cell_size_px}px_{int(threshold_percentage)}.csv"
     csv_path = os.path.join(images_folder, csv_filename)
     with open(csv_path, 'w', newline='') as csvfile:
         writer = csv.writer(csvfile)
@@ -99,7 +106,7 @@ else:
     
     # Print the configuration variables
     print(f"Threshold Percentage: {threshold_percentage}%")
-    print(f"Grid Size: {grid_size}x{grid_size}")
+    print(f"Cell Size: {cell_size_px}px ({grid_cols}x{grid_rows})")
     print()
     
     # Print the header of the output table
