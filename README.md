@@ -89,7 +89,7 @@ For 50px cells with a 50% threshold:
 
 ## Educational/Research Use
 
-This tool is designed for educational and research purposes. It demonstrates image processing techniques, grid-based analysis, and data normalisation. The example images in `Flat heatmaps/` and `Triangle HeatMaps/` illustrate different heatmap patterns.
+This tool is designed for educational and research purposes. It demonstrates image processing techniques, grid-based analysis, and data normalisation. The example images in `flat-heatmaps/` and `triangle-heatmaps/` illustrate different heatmap patterns.
 
 ## Contributing
 
