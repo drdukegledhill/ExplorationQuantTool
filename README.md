@@ -61,12 +61,16 @@ A Python tool for quantitative analysis of images using grid-based pixel density
 
 ### Command-Line Version
 
-1. Adjust `threshold_percentage` and `cell_size_px` variables in `run.py` if needed.
-2. Run the script:
+1. Run the script (with optional arguments):
    ```bash
    python run.py    # On Windows
    python3 run.py   # On macOS/Linux
    ```
+   Optional arguments:
+   - `--cell-size` (int): Cell size in pixels (must divide image width/height)
+   - `--threshold` (float): Threshold percentage (default 50)
+   - `--mask` (str): Mask filename in the folder (default `mask.png`)
+2. If `--cell-size` is not provided, the CLI will prompt you to choose from valid sizes.
 3. A folder selection dialog will appear; choose the folder containing your images.
 4. View results in the console and in `results_{cell_size_px}px_{threshold_percentage}.csv` (e.g., `results_50px_50.csv`, saved in the selected folder).
 5. Optional: Add a `mask.png` in the folder to exclude regions (white removes, black keeps).

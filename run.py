@@ -1,5 +1,6 @@
 # Import necessary modules for file handling, image processing, CSV writing, and GUI
 import os  # For operating system interactions and getting current directory
+import argparse  # For CLI arguments
 from pathlib import Path  # For handling file paths in an object-oriented way
 from PIL import Image, ImageOps  # For image processing using the Pillow library
 import math  # For gcd and divisor calculation
@@ -8,7 +9,7 @@ import tkinter as tk  # For GUI folder selection
 from tkinter import filedialog  # For the folder dialog
 
 # Default parameters
-threshold_percentage = 50  # The minimum percentage of non-black pixels required for a grid cell to be counted as 1
+DEFAULT_THRESHOLD_PERCENTAGE = 50  # The minimum percentage of non-black pixels required for a grid cell to be counted as 1
 DEFAULT_CELL_SIZE_PX = 50  # Preferred cell size in pixels
 
 def _common_divisors(a, b):
@@ -20,6 +21,29 @@ def _common_divisors(a, b):
             divisors.add(i)
             divisors.add(gcd_value // i)
     return sorted(divisors)
+
+def _parse_args():
+    parser = argparse.ArgumentParser(description="Grid-based image analysis.")
+    parser.add_argument(
+        "--cell-size",
+        type=int,
+        help="Cell size in pixels (must divide image width/height).",
+    )
+    parser.add_argument(
+        "--threshold",
+        type=float,
+        default=DEFAULT_THRESHOLD_PERCENTAGE,
+        help="Threshold percentage for non-black pixels (default: 50).",
+    )
+    parser.add_argument(
+        "--mask",
+        type=str,
+        default="mask.png",
+        help="Mask filename in the selected folder (default: mask.png).",
+    )
+    return parser.parse_args()
+
+args = _parse_args()
 
 # Prompt user to select the folder containing the images
 root = tk.Tk()  # Create tkinter window
@@ -45,7 +69,7 @@ image_files = [f for f in images_folder.iterdir() if f.is_file() and f.suffix.lo
 if not image_files:
     print("No image files found in the images folder.")
 else:
-    mask_path = images_folder / "mask.png"
+    mask_path = images_folder / args.mask
     mask_img = None
     if mask_path.exists():
         with Image.open(mask_path) as m:
@@ -54,21 +78,45 @@ else:
     with Image.open(image_files[0]) as first_img:
         first_width, first_height = first_img.size
     if mask_img is not None and mask_img.size != (first_width, first_height):
-        print("mask.png size must match the images.")
+        print(f"{args.mask} size must match the images.")
         exit(1)
     cell_sizes = _common_divisors(first_width, first_height)
     if not cell_sizes:
         print("Could not determine valid cell sizes for the first image.")
         exit(1)
-    if DEFAULT_CELL_SIZE_PX in cell_sizes:
-        cell_size_px = DEFAULT_CELL_SIZE_PX
+    if args.cell_size is not None:
+        if args.cell_size not in cell_sizes:
+            print(
+                f"Cell size {args.cell_size}px is invalid for {image_files[0].name} "
+                f"({first_width}x{first_height})."
+            )
+            print(f"Valid cell sizes for this image are: {', '.join(map(str, cell_sizes))}")
+            exit(1)
+        cell_size_px = args.cell_size
     else:
-        smaller_or_equal = [s for s in cell_sizes if s <= DEFAULT_CELL_SIZE_PX]
-        cell_size_px = (smaller_or_equal[-1] if smaller_or_equal else cell_sizes[0])
-        print(
-            f"Default cell size {DEFAULT_CELL_SIZE_PX}px is invalid for {image_files[0].name} "
-            f"({first_width}x{first_height}). Using {cell_size_px}px instead."
-        )
+        default_cell_size = DEFAULT_CELL_SIZE_PX if DEFAULT_CELL_SIZE_PX in cell_sizes else None
+        if default_cell_size is None:
+            smaller_or_equal = [s for s in cell_sizes if s <= DEFAULT_CELL_SIZE_PX]
+            default_cell_size = smaller_or_equal[-1] if smaller_or_equal else cell_sizes[0]
+        print(f"Valid cell sizes for {image_files[0].name} ({first_width}x{first_height}):")
+        print(", ".join(map(str, cell_sizes)))
+        prompt = f"Choose cell size [default {default_cell_size}]: "
+        choice = input(prompt).strip()
+        if choice:
+            try:
+                chosen = int(choice)
+            except ValueError:
+                print("Invalid cell size. Must be an integer.")
+                exit(1)
+            if chosen not in cell_sizes:
+                print(f"Cell size {chosen}px is invalid for {image_files[0].name} ({first_width}x{first_height}).")
+                print(f"Valid cell sizes for this image are: {', '.join(map(str, cell_sizes))}")
+                exit(1)
+            cell_size_px = chosen
+        else:
+            cell_size_px = default_cell_size
+
+    threshold_percentage = args.threshold
 
     # Initialize a list to store results for each image
     results = []
@@ -80,7 +128,7 @@ else:
         width, height = img.size
 
         if mask_img is not None and mask_img.size != (width, height):
-            print(f"mask.png size does not match {img_file.name} ({width}x{height}).")
+            print(f"{args.mask} size does not match {img_file.name} ({width}x{height}).")
             exit(1)
         
         # Convert the image to grayscale if it's not already in grayscale mode ('L')
