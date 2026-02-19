@@ -1,11 +1,16 @@
-# Import necessary modules for file handling, image processing, CSV writing, and GUI
-import os  # For operating system interactions and getting current directory
-from pathlib import Path  # For handling file paths in an object-oriented way
-from PIL import Image, ImageDraw, ImageTk, ImageOps  # For image processing and displaying in tkinter
-import csv  # For writing CSV files
-import math  # For gcd and divisor calculation
-import tkinter as tk  # For creating the GUI
-from tkinter import filedialog, ttk, messagebox, font  # For folder selection, styled widgets, message boxes, and fonts
+import os
+from pathlib import Path
+from PIL import Image, ImageDraw, ImageTk, ImageOps
+import csv
+import math
+import tkinter as tk
+from tkinter import filedialog, ttk, messagebox
+import numpy as np
+
+MASK_FILENAME = "mask.png"
+DEFAULT_THRESHOLD_PERCENTAGE = 50
+DEFAULT_CELL_SIZE_PX = 50
+
 
 def _common_divisors(a, b):
     gcd_value = math.gcd(a, b)
@@ -17,278 +22,197 @@ def _common_divisors(a, b):
             divisors.add(gcd_value // i)
     return sorted(divisors)
 
-# Function to process a single image and return the normalised value and image with grid overlay
-def process_image(img_path, cell_size_px, threshold_percentage, mask_img):
-    # Open the image file
-    img = Image.open(img_path)
-    # Get image dimensions
-    width, height = img.size
-    
-    # Convert to grayscale if not already
-    if img.mode != 'L':
-        img = img.convert('L')
-    
-    if cell_size_px <= 0:
-        raise ValueError("Cell size must be a positive integer.")
-    if width % cell_size_px != 0 or height % cell_size_px != 0:
-        raise ValueError("Cell size must divide both image width and height.")
 
+def process_image(img_path, cell_size_px, threshold_percentage, mask_img):
+    with Image.open(img_path) as raw:
+        # Always convert to a detached in-memory copy before closing the file
+        img = raw.convert('L')
+
+    if img.size[0] % cell_size_px != 0 or img.size[1] % cell_size_px != 0:
+        raise ValueError("Cell size must divide both image width and height.")
     if mask_img is not None and mask_img.size != img.size:
         raise ValueError("Mask size does not match image size.")
 
-    # Apply mask if present (white = remove, black = keep)
     if mask_img is not None:
+        # White in mask = exclude, black = include (intentionally non-standard)
         black_bg = Image.new('L', img.size, 0)
-        # Invert so white removes and black keeps
         img = Image.composite(img, black_bg, ImageOps.invert(mask_img))
 
-    # Calculate grid dimensions based on cell size
+    width, height = img.size
     grid_cols = width // cell_size_px
     grid_rows = height // cell_size_px
-    
-    # Initialize total value counter
+
+    img_array = np.array(img)
     total_value = 0
-    
-    # Loop through each grid cell
-    for i in range(grid_cols):
-        for j in range(grid_rows):
-            # Define cell boundaries
-            left = i * cell_size_px
-            upper = j * cell_size_px
-            right = (i + 1) * cell_size_px
-            lower = (j + 1) * cell_size_px
-            
-            # Crop the cell from the image
-            cell = img.crop((left, upper, right, lower))
-            # Get pixel data from the cell
-            try:
-                pixels = list(cell.get_flattened_data())
-            except AttributeError:
-                pixels = list(cell.getdata())
-            # Count non-black pixels
-            non_zero_count = sum(1 for p in pixels if p > 0)
-            # Total pixels in cell
-            total_pixels = len(pixels)
-            
-            # Calculate percentage of non-black pixels
-            if total_pixels > 0:
-                percentage = (non_zero_count / total_pixels) * 100
-                # Increment total if above threshold
-                if percentage >= threshold_percentage:
-                    total_value += 1
-    
-    # Normalize the total value to a percentage out of 100
+    for col in range(grid_cols):
+        for row in range(grid_rows):
+            left = col * cell_size_px
+            upper = row * cell_size_px
+            cell = img_array[upper:upper + cell_size_px, left:left + cell_size_px]
+            percentage = (np.count_nonzero(cell) / cell.size) * 100
+            if percentage >= threshold_percentage:
+                total_value += 1
+
     normalised_value = round((total_value / (grid_cols * grid_rows)) * 100, 1)
-    
-    # Draw grid lines on the image
+
     draw = ImageDraw.Draw(img)
-    for i in range(1, grid_cols):
-        # Draw vertical grid lines
-        draw.line([(i * cell_size_px, 0), (i * cell_size_px, height)], fill=255, width=1)
-    for i in range(1, grid_rows):
-        # Draw horizontal grid lines
-        draw.line([(0, i * cell_size_px), (width, i * cell_size_px)], fill=255, width=1)
-    
-    # Return the normalized value and the image with grid
+    for col in range(1, grid_cols):
+        draw.line([(col * cell_size_px, 0), (col * cell_size_px, height)], fill=255, width=1)
+    for row in range(1, grid_rows):
+        draw.line([(0, row * cell_size_px), (width, row * cell_size_px)], fill=255, width=1)
+
     return normalised_value, img
 
-# Global variables to store the current processed image and its value
-current_value = None  # Stores the normalized value of the current image
-current_img = None  # Stores the current image with grid overlay
 
-# Function to process the current image and update the display
-def process_and_display():
-    global current_value, current_img  # Access global variables
-    try:
-        # Get cell size from input
-        cell_size_px = int(cell_size_combo.get())
-        # Get threshold from input
-        threshold = float(threshold_entry.get())
-        # Validate inputs
-        if cell_size_px <= 0 or threshold < 0 or threshold > 100:
-            raise ValueError
-        # Process the image
+def main():
+    current_value = None
+    current_img = None
+
+    root = tk.Tk()
+    root.withdraw()
+    folder_selected = filedialog.askdirectory(
+        title="Select folder containing images", initialdir=os.getcwd()
+    )
+    if not folder_selected:
+        print("No folder selected. Exiting.")
+        return
+    images_folder = Path(folder_selected)
+
+    if not images_folder.exists():
+        print("Images folder does not exist.")
+        return
+
+    image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff'}
+    mask_path = images_folder / MASK_FILENAME
+
+    image_files = sorted(
+        f for f in images_folder.iterdir()
+        if f.is_file() and f.suffix.lower() in image_extensions and f != mask_path
+    )
+
+    if not image_files:
+        messagebox.showerror("No Images", "No image files found in the images folder.")
+        return
+
+    mask_img = None
+    if mask_path.exists():
+        with Image.open(mask_path) as m:
+            mask_img = m.convert('L') if m.mode != 'L' else m.copy()
+
+    with Image.open(image_files[0]) as first_img:
+        first_width, first_height = first_img.size
+
+    if mask_img is not None and mask_img.size != (first_width, first_height):
+        messagebox.showerror("Invalid Mask", f"{MASK_FILENAME} size must match the images.")
+        return
+
+    cell_sizes = _common_divisors(first_width, first_height)
+    if not cell_sizes:
+        messagebox.showerror("Invalid Image", "Could not determine valid cell sizes.")
+        return
+
+    current_img_path = image_files[0]
+
+    def process_and_display():
+        nonlocal current_value, current_img
+        try:
+            cell_size_px = int(cell_size_combo.get())
+            threshold = float(threshold_entry.get())
+            if threshold < 0 or threshold > 100:
+                raise ValueError
+        except ValueError:
+            messagebox.showerror("Invalid Input", "Please enter valid cell size and threshold (0-100).")
+            return
         current_value, current_img = process_image(current_img_path, cell_size_px, threshold, mask_img)
-        # Update the value label
         value_label.config(text=f"Normalised Value: {current_value}")
-        # Display the image
         display_image()
-    except ValueError:
-        # Show error for invalid inputs
-        messagebox.showerror("Invalid Input", "Please enter valid grid size (positive integer) and threshold (0-100).")
 
-# Function to display the current image scaled to canvas while maintaining aspect ratio
-def display_image():
-    if current_img is None:
-        return  # No image to display
-    # Get canvas dimensions
-    canvas_width = canvas.winfo_width()
-    canvas_height = canvas.winfo_height()
-    if canvas_width <= 1 or canvas_height <= 1:
-        return  # Canvas not ready
-    # Get original image dimensions
-    img_width, img_height = current_img.size
-    # Calculate scaling factor to fit while maintaining aspect ratio
-    scale = min(canvas_width / img_width, canvas_height / img_height)
-    # Calculate new dimensions
-    new_width = int(img_width * scale)
-    new_height = int(img_height * scale)
-    # Resize the image
-    img_resized = current_img.resize((new_width, new_height), Image.LANCZOS)
-    # Create PhotoImage for tkinter
-    photo = ImageTk.PhotoImage(img_resized)
-    # Clear canvas
-    canvas.delete("all")
-    # Centre the image on the canvas
-    x = (canvas_width - new_width) // 2
-    y = (canvas_height - new_height) // 2
-    canvas.create_image(x, y, anchor=tk.NW, image=photo)
-    # Keep reference to prevent garbage collection
-    canvas.image = photo
+    def display_image():
+        if current_img is None:
+            return
+        canvas_width = canvas.winfo_width()
+        canvas_height = canvas.winfo_height()
+        if canvas_width <= 1 or canvas_height <= 1:
+            return
+        img_width, img_height = current_img.size
+        scale = min(canvas_width / img_width, canvas_height / img_height)
+        new_width = int(img_width * scale)
+        new_height = int(img_height * scale)
+        img_resized = current_img.resize((new_width, new_height), Image.LANCZOS)
+        photo = ImageTk.PhotoImage(img_resized)
+        canvas.delete("all")
+        x = (canvas_width - new_width) // 2
+        y = (canvas_height - new_height) // 2
+        canvas.create_image(x, y, anchor=tk.NW, image=photo)
+        canvas.image = photo  # prevent garbage collection
 
-# Function to apply the current settings to all images in the folder and save results to CSV
-def apply_to_folder():
-    try:
-        # Get cell size from input
-        cell_size_px = int(cell_size_combo.get())
-        # Get threshold from input
-        threshold = float(threshold_entry.get())
-        # Validate inputs
-        if cell_size_px <= 0 or threshold < 0 or threshold > 100:
-            raise ValueError
-        # Initialize results list
+    def apply_to_folder():
+        try:
+            cell_size_px = int(cell_size_combo.get())
+            threshold = float(threshold_entry.get())
+        except ValueError:
+            messagebox.showerror("Invalid Input", "Please enter valid cell size and threshold (0-100).")
+            return
+        if threshold < 0 or threshold > 100:
+            messagebox.showerror("Invalid Input", "Threshold must be between 0 and 100.")
+            return
+
         results = []
-        # Process each image in the folder
         for img_file in image_files:
-            with Image.open(img_file) as img:
-                width, height = img.size
-            if mask_img is not None and mask_img.size != (width, height):
-                messagebox.showerror(
-                    "Invalid Mask",
-                    f"mask.png size does not match {img_file.name} ({width}x{height})."
-                )
+            try:
+                value, _ = process_image(img_file, cell_size_px, threshold, mask_img)
+            except ValueError as e:
+                messagebox.showerror("Error", str(e))
                 return
-            if width % cell_size_px != 0 or height % cell_size_px != 0:
-                messagebox.showerror(
-                    "Invalid Grid Size",
-                    f"Cell size {cell_size_px}px does not evenly divide {img_file.name} ({width}x{height})."
-                )
-                return
-            # Get value for each image
-            value, _ = process_image(img_file, cell_size_px, threshold, mask_img)
-            # Add to results
             results.append((img_file.name, value))
-        # Create CSV filename with grid and threshold
+
         csv_filename = f"results_{cell_size_px}px_{int(threshold)}.csv"
-        # Full path for CSV
         csv_path = images_folder / csv_filename
-        # Write to CSV
         with open(csv_path, 'w', newline='') as csvfile:
             writer = csv.writer(csvfile)
-            # Write header
             writer.writerow(['Image Name', 'Normalised Value'])
-            # Write each result
             for name, value in results:
                 writer.writerow([name, value])
-        # Show success message
         messagebox.showinfo("Done", f"Results saved to {csv_filename}")
-    except ValueError:
-        # Show error for invalid inputs
-        messagebox.showerror("Invalid Input", "Please enter valid cell size (positive integer) and threshold (0-100).")
 
-# Prompt user to select the folder containing the images
-root = tk.Tk()  # Create main tkinter window
-root.withdraw()  # Hide the window initially
-folder_selected = filedialog.askdirectory(title="Select folder containing images", initialdir=os.getcwd())  # Open folder dialog starting in current directory
-if not folder_selected:
-    print("No folder selected. Exiting.")
-    exit(1)  # Exit if no folder selected
-images_folder = Path(folder_selected)  # Convert to Path object
+    root.deiconify()
+    root.title("Image Grid Analysis")
 
-if not images_folder.exists():
-    print("Images folder does not exist.")
-    exit(1)  # Exit if folder doesn't exist
+    input_frame = ttk.Frame(root)
+    input_frame.pack(pady=10)
 
-# Define supported image extensions
-image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff'}
-# Get list of image files in the folder
-image_files = [f for f in images_folder.iterdir() if f.is_file() and f.suffix.lower() in image_extensions]
+    ttk.Label(input_frame, text="Cell Size (px):").grid(row=0, column=0, padx=5)
+    cell_size_combo = ttk.Combobox(input_frame, values=cell_sizes, state="readonly", width=10)
+    default_cell_size = next((s for s in reversed(cell_sizes) if s <= DEFAULT_CELL_SIZE_PX), cell_sizes[0])
+    cell_size_combo.set(str(default_cell_size))
+    cell_size_combo.grid(row=0, column=1, padx=5)
+    cell_size_combo.bind("<<ComboboxSelected>>", lambda e: process_and_display())
 
-if not image_files:
-    messagebox.showerror("No Images", "No image files found in the images folder.")
-    exit(1)  # Exit if no images found
+    ttk.Label(input_frame, text="Threshold (%):").grid(row=1, column=0, padx=5)
+    threshold_entry = ttk.Entry(input_frame)
+    threshold_entry.insert(0, str(DEFAULT_THRESHOLD_PERCENTAGE))
+    threshold_entry.grid(row=1, column=1, padx=5)
+    threshold_entry.bind("<Return>", lambda e: process_and_display())
+    threshold_entry.bind("<FocusOut>", lambda e: process_and_display())
 
-current_img_path = image_files[0]  # Use the first image for display
+    button_frame = ttk.Frame(root)
+    button_frame.pack(pady=10)
+    ttk.Button(button_frame, text="Update", command=process_and_display).grid(row=0, column=0, padx=5)
+    ttk.Button(button_frame, text="Apply to Folder", command=apply_to_folder).grid(row=0, column=1, padx=5)
 
-# Optional mask (mask.png) in the same folder
-mask_path = images_folder / "mask.png"
-mask_img = None
-if mask_path.exists():
-    with Image.open(mask_path) as m:
-        mask_img = m.convert('L') if m.mode != 'L' else m.copy()
+    display_frame = ttk.Frame(root)
+    display_frame.pack(pady=10, fill=tk.BOTH, expand=True)
 
-# Create GUI on the same root
-root.deiconify()  # Show the window
-root.title("Image Grid Analysis")  # Set window title
+    canvas = tk.Canvas(display_frame, bg='gray')
+    canvas.pack(fill=tk.BOTH, expand=True)
+    canvas.bind('<Configure>', lambda e: display_image())
 
-# Frame for input fields
-input_frame = ttk.Frame(root)
-input_frame.pack(pady=10)
+    value_label = ttk.Label(display_frame, text="Normalised Value: ", font=("Helvetica", 18, "bold"))
+    value_label.pack(side=tk.RIGHT, padx=20)
 
-# Cell size input (pixels)
-first_img = Image.open(current_img_path)
-first_width, first_height = first_img.size
-first_img.close()
-if mask_img is not None and mask_img.size != (first_width, first_height):
-    messagebox.showerror("Invalid Mask", "mask.png size must match the images.")
-    exit(1)
-cell_sizes = _common_divisors(first_width, first_height)
-if not cell_sizes:
-    messagebox.showerror("Invalid Image", "Could not determine valid cell sizes.")
-    exit(1)
+    process_and_display()
+    root.mainloop()
 
-ttk.Label(input_frame, text="Cell Size (px):").grid(row=0, column=0, padx=5)
-cell_size_combo = ttk.Combobox(input_frame, values=cell_sizes, state="readonly", width=10)
-default_cell_size = next((s for s in reversed(cell_sizes) if s <= 50), cell_sizes[0])
-cell_size_combo.set(str(default_cell_size))
-cell_size_combo.grid(row=0, column=1, padx=5)
-cell_size_combo.bind("<<ComboboxSelected>>", lambda e: process_and_display())
 
-# Threshold input
-ttk.Label(input_frame, text="Threshold (%):").grid(row=1, column=0, padx=5)
-threshold_entry = ttk.Entry(input_frame)
-threshold_entry.insert(0, "50")  # Default value
-threshold_entry.grid(row=1, column=1, padx=5)
-threshold_entry.bind("<Return>", lambda e: process_and_display())
-threshold_entry.bind("<FocusOut>", lambda e: process_and_display())
-
-# Frame for buttons
-button_frame = ttk.Frame(root)
-button_frame.pack(pady=10)
-
-# Update button to recalculate for current image
-update_button = ttk.Button(button_frame, text="Update", command=process_and_display)
-update_button.grid(row=0, column=0, padx=5)
-
-# Apply to folder button
-apply_button = ttk.Button(button_frame, text="Apply to Folder", command=apply_to_folder)
-apply_button.grid(row=0, column=1, padx=5)
-
-# Frame for display
-display_frame = ttk.Frame(root)
-display_frame.pack(pady=10, fill=tk.BOTH, expand=True)
-
-# Canvas that resizes with window for image display
-canvas = tk.Canvas(display_frame, bg='gray')
-canvas.pack(fill=tk.BOTH, expand=True)
-canvas.bind('<Configure>', lambda e: display_image())  # Redisplay on resize
-
-# Label for normalized value with larger font
-value_label = ttk.Label(display_frame, text="Normalised Value: ", font=("Helvetica", 18, "bold"))
-value_label.pack(side=tk.RIGHT, padx=20)
-
-# Initial display of the first image
-process_and_display()
-
-# Start the GUI event loop
-root.mainloop()
+if __name__ == "__main__":
+    main()
