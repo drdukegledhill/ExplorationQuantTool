@@ -18,6 +18,7 @@ A Python tool for quantitative analysis of images using grid-based pixel density
 
 - Python 3.x (Python 3.6 or higher recommended)
 - Pillow (PIL) library for image processing
+- NumPy for fast pixel-level operations
 - Tkinter (usually included with Python for GUI)
 
 ## Installation
@@ -28,17 +29,17 @@ A Python tool for quantitative analysis of images using grid-based pixel density
    ```bash
    brew install python
    ```
-2. Install Pillow:
+2. Install dependencies:
    ```bash
-   pip3 install pillow
+   pip3 install pillow numpy
    ```
 
 ### On Windows
 
 1. Download and install Python 3 from [python.org](https://www.python.org/downloads/).
-2. Install Pillow:
+2. Install dependencies:
    ```bash
-   pip install pillow
+   pip install pillow numpy
    ```
 
 **Note:** On some systems, you may need to use `python3` and `pip3` instead of `python` and `pip`. If you encounter issues, try the alternative commands.
