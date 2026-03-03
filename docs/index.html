@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ExplorationQuantTool</title>
+  <meta name="description" content="Grid-based quantitative image analysis in Python with CLI and GUI workflows." />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="hero">
+    <div class="container">
+      <p class="eyebrow">Python • Image Analysis • Research Tool</p>
+      <h1>ExplorationQuantTool</h1>
+      <p class="lead">
+        A lightweight quantitative image analysis tool that scores images by measuring
+        non-black pixel density across a configurable grid.
+      </p>
+      <div class="cta-row">
+        <a class="button" href="../README.md">View README</a>
+        <a class="button button-secondary" href="https://github.com/drdukegledhill/ExplorationQuantTool">GitHub Repo</a>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section class="section">
+      <div class="container">
+        <h2>What it does</h2>
+        <ul class="feature-list">
+          <li>Splits each image into square cells based on a chosen pixel cell size.</li>
+          <li>Computes non-black pixel percentage in each grid cell.</li>
+          <li>Applies a threshold to classify each cell as active/inactive.</li>
+          <li>Normalises the final score to a 0–100 scale for easy comparison.</li>
+          <li>Exports batch results to CSV for downstream analysis.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section class="section alt">
+      <div class="container two-col">
+        <div>
+          <h2>Quick start</h2>
+          <h3>Install</h3>
+          <pre><code>pip install pillow numpy</code></pre>
+          <h3>Run GUI</h3>
+          <pre><code>python gui.py
+# or
+python3 gui.py</code></pre>
+          <h3>Run CLI</h3>
+          <pre><code>python run.py --cell-size 50 --threshold 50
+# or
+python3 run.py --cell-size 50 --threshold 50</code></pre>
+        </div>
+        <div>
+          <h2>Workflow</h2>
+          <ol>
+            <li>Select a folder of images.</li>
+            <li>Choose valid cell size and threshold.</li>
+            <li>Optionally provide <code>mask.png</code> (white excludes, black keeps).</li>
+            <li>Process images and export a <code>results_&lt;cell&gt;px_&lt;threshold&gt;.csv</code> file.</li>
+          </ol>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container">
+        <h2>Example output</h2>
+        <p>
+          If 30 out of 100 cells pass threshold, the normalised score is <strong>30.0</strong>.
+        </p>
+        <p class="small">CSV columns: <code>Image Name</code>, <code>Normalised Value</code></p>
+      </div>
+    </section>
+
+    <section class="section alt">
+      <div class="container">
+        <h2>Sample heatmaps</h2>
+        <div class="gallery">
+          <figure>
+            <img src="assets/flat-heatmap.png" alt="Flat heatmap sample" />
+            <figcaption>Flat heatmap sample</figcaption>
+          </figure>
+          <figure>
+            <img src="assets/triangle-heatmap.png" alt="Triangle heatmap sample" />
+            <figcaption>Triangle heatmap sample</figcaption>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="container">
+        <h2>Use cases</h2>
+        <ul class="feature-list">
+          <li>Educational demos of grid-based image quantification.</li>
+          <li>Exploratory visual data scoring for research workflows.</li>
+          <li>Comparing pattern intensity across image sets.</li>
+        </ul>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="container footer-inner">
+      <span>ExplorationQuantTool</span>
+      <span>Developed for exploration and quantitative analysis of visual data.</span>
+    </div>
+  </footer>
+</body>
+</html>
