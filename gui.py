@@ -15,12 +15,10 @@ DEFAULT_CELL_SIZE_PX = 50
 DEFAULT_EDGE_THRESHOLD = 30
 DEFAULT_SEGMENT_LENGTH = 100
 
-# Colours used to draw each edge profile on the overlay
+# Colours used to draw each centerline profile on the overlay
 EDGE_COLOURS = {
-    'top':    (255, 80,  80),   # red
-    'bottom': (255, 165, 50),   # orange
-    'left':   (0,   200, 255),  # cyan
-    'right':  (80,  220, 80),   # green
+    'h': (255, 220,  0),    # yellow  — horizontal-band centroids
+    'v': (220,  80, 255),   # magenta — vertical-band centroids
 }
 
 
@@ -80,21 +78,21 @@ def process_image(img_path, cell_size_px, threshold_percentage, mask_img):
 
 def draw_edge_overlay(img_rgb, edge_run_data):
     """
-    Draw the detected edge runs as coloured polylines on an RGB image in-place.
+    Draw centerline profiles as coloured polylines on an RGB image in-place.
 
     edge_run_data is the list returned by get_edge_runs():
       [(label, profile, runs), ...]
+      label 'h' → index is x-column, value is centroid y-row
+      label 'v' → index is y-row,    value is centroid x-column
     """
     draw = ImageDraw.Draw(img_rgb)
     for label, profile, runs in edge_run_data:
         colour = EDGE_COLOURS[label]
         for start, end in runs:
             seg = profile[start:end + 1]
-            if label in ('top', 'bottom'):
-                # index = x-column, value = y-row
+            if label == 'h':
                 pts = [(start + i, int(round(seg[i]))) for i in range(len(seg))]
             else:
-                # index = y-row, value = x-column
                 pts = [(int(round(seg[i])), start + i) for i in range(len(seg))]
             if len(pts) >= 2:
                 draw.line(pts, fill=colour, width=2)
@@ -344,10 +342,8 @@ def main():
     legend_frame = ttk.LabelFrame(input_frame, text="Overlay colours")
     legend_frame.grid(row=7, column=0, columnspan=2, padx=5, pady=6, sticky='ew')
     legend_items = [
-        ("Top edge",    EDGE_COLOURS['top']),
-        ("Bottom edge", EDGE_COLOURS['bottom']),
-        ("Left edge",   EDGE_COLOURS['left']),
-        ("Right edge",  EDGE_COLOURS['right']),
+        ("Horizontal centroids", EDGE_COLOURS['h']),
+        ("Vertical centroids",   EDGE_COLOURS['v']),
     ]
     for i, (label_text, colour) in enumerate(legend_items):
         hex_colour = "#{:02x}{:02x}{:02x}".format(*colour)

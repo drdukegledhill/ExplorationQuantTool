@@ -2,16 +2,17 @@
 Squiggliness analysis for heatmap images.
 
 Two complementary metrics are computed:
-  arc_length_ratio  — actual edge path length / straight-line extent (1.0 = perfectly straight)
+  arc_length_ratio  — actual path length / straight-line extent (1.0 = perfectly straight)
   ra_roughness      — mean absolute pixel deviation from a local best-fit line per segment
 
-The image is divided into horizontal and vertical bands of configurable size. Within each band
-the topmost and bottommost (or leftmost and rightmost) edge pixel per scan line is recorded,
-producing one profile per band boundary. Using multiple bands captures internal lines, not just
-the outermost boundary of the bright region. Smaller band_size → finer internal detail.
+The image is divided into horizontal and vertical bands of configurable size.  Within each
+band the brightness-weighted centroid of bright pixels is computed for every scan line,
+producing a smooth curve that follows the *centre* of each line rather than its edge.
+Using multiple bands allows separate centroid traces for lines at different vertical (or
+horizontal) positions.  Smaller band_size → finer separation of internal lines.
 
-Each continuous run of edge positions is analysed independently; results are combined
-as an arc-length-weighted average across all runs and bands.
+Each continuous centroid run is analysed independently; results are combined as an
+arc-length-weighted average across all runs and bands.
 """
 
 import numpy as np
@@ -44,22 +45,6 @@ def _skewness(x):
     if s == 0:
         return 0.0
     return float(((x - m) ** 3).mean() / s ** 3)
-
-
-def _find_edge_map(arr, threshold):
-    """
-    Return a boolean array marking the 1-pixel-thick boundary of bright regions.
-    Uses 8-connected morphological erosion (numpy only, no scipy).
-    """
-    binary = arr > threshold
-    h, w = binary.shape
-    padded = np.pad(binary, 1, mode='edge')
-    eroded = (
-        padded[0:h,   0:w]   & padded[0:h,   1:w+1] & padded[0:h,   2:w+2] &
-        padded[1:h+1, 0:w]   &                         padded[1:h+1, 2:w+2] &
-        padded[2:h+2, 0:w]   & padded[2:h+2, 1:w+1] & padded[2:h+2, 2:w+2]
-    )
-    return binary & ~eroded
 
 
 def _find_continuous_runs(profile, min_length):
@@ -128,63 +113,62 @@ def _segmented_ra(profile, segment_length):
     return float(np.average(ra_values, weights=w / w.sum()))
 
 
-def _build_profiles_banded(edge_map, band_size):
+def _build_centerline_profiles_banded(arr, threshold, band_size):
     """
-    Build edge-position profiles by scanning within fixed-size bands.
+    Compute brightness-weighted centroid profiles within fixed-size bands.
 
-    Divides the image into horizontal bands (for column-wise top/bottom profiles)
-    and vertical bands (for row-wise left/right profiles). Each band independently
-    finds the nearest edges within its slice, so internal lines are captured rather
-    than only the outermost boundary of the whole image.
+    For each horizontal band, the centroid y-position of bright pixels is computed
+    for every column — producing a smooth curve through the *centre* of whatever
+    line(s) pass through that band.  Vertical bands do the same in the x-direction.
 
-    Returns a list of (label, profile) tuples where:
-      label   – 'top' | 'bottom' | 'left' | 'right'
-      profile – 1-D float array (absolute pixel coordinates), NaN where no edge.
-                For top/bottom: index = x-column, value = y-row.
-                For left/right: index = y-row,    value = x-column.
+    Using multiple bands separates lines at different vertical/horizontal positions
+    so each gets its own independent centroid trace.
+
+    Returns a list of (label, profile) tuples:
+      label   – 'h' (horizontal band, column-wise) or 'v' (vertical band, row-wise)
+      profile – 1-D float array (absolute pixel coordinates), NaN where no bright pixels.
+                'h': index = x-column, value = centroid y-row.
+                'v': index = y-row,    value = centroid x-column.
     """
-    height, width = edge_map.shape
+    h, w = arr.shape
+    binary = (arr > threshold).astype(float)
     profiles = []
 
-    # --- Horizontal bands → column-wise top/bottom profiles ---
-    n_hbands = max(1, round(height / band_size))
-    band_h = height // n_hbands
+    # Horizontal bands → column centroids (traces horizontal / diagonal lines)
+    n_hbands = max(1, round(h / band_size))
+    band_h = h // n_hbands
 
     for b in range(n_hbands):
         y0 = b * band_h
-        y1 = (b + 1) * band_h if b < n_hbands - 1 else height
-        band = edge_map[y0:y1, :]
-        bh = y1 - y0
+        y1 = (b + 1) * band_h if b < n_hbands - 1 else h
+        band = binary[y0:y1, :]                              # (bh, w)
+        bright_count = band.sum(axis=0)                      # (w,)
+        y_coords = np.arange(y0, y1, dtype=float)
+        y_sum = (band * y_coords[:, np.newaxis]).sum(axis=0) # (w,)
+        centroid = np.where(
+            bright_count > 0,
+            y_sum / np.where(bright_count > 0, bright_count, 1.0),
+            np.nan,
+        )
+        profiles.append(('h', centroid))
 
-        has_col = band.any(axis=0)
-        top = np.where(has_col,
-                       np.argmax(band, axis=0).astype(float) + y0,
-                       np.nan)
-        bottom = np.where(has_col,
-                          (bh - 1 - np.argmax(band[::-1, :], axis=0)).astype(float) + y0,
-                          np.nan)
-        profiles.append(('top', top))
-        profiles.append(('bottom', bottom))
-
-    # --- Vertical bands → row-wise left/right profiles ---
-    n_vbands = max(1, round(width / band_size))
-    band_w = width // n_vbands
+    # Vertical bands → row centroids (traces vertical / diagonal lines)
+    n_vbands = max(1, round(w / band_size))
+    band_w = w // n_vbands
 
     for b in range(n_vbands):
         x0 = b * band_w
-        x1 = (b + 1) * band_w if b < n_vbands - 1 else width
-        band = edge_map[:, x0:x1]
-        bw = x1 - x0
-
-        has_row = band.any(axis=1)
-        left = np.where(has_row,
-                        np.argmax(band, axis=1).astype(float) + x0,
-                        np.nan)
-        right = np.where(has_row,
-                         (bw - 1 - np.argmax(band[:, ::-1], axis=1)).astype(float) + x0,
-                         np.nan)
-        profiles.append(('left', left))
-        profiles.append(('right', right))
+        x1 = (b + 1) * band_w if b < n_vbands - 1 else w
+        band = binary[:, x0:x1]                              # (h, bw)
+        bright_count = band.sum(axis=1)                      # (h,)
+        x_coords = np.arange(x0, x1, dtype=float)
+        x_sum = (band * x_coords[np.newaxis, :]).sum(axis=1) # (h,)
+        centroid = np.where(
+            bright_count > 0,
+            x_sum / np.where(bright_count > 0, bright_count, 1.0),
+            np.nan,
+        )
+        profiles.append(('v', centroid))
 
     return profiles
 
@@ -192,19 +176,18 @@ def _build_profiles_banded(edge_map, band_size):
 def get_edge_runs(img_path, mask_img=None, edge_threshold=30,
                   band_size=DEFAULT_BAND_SIZE, min_run_length=50):
     """
-    Return edge profiles and their continuous runs for visual overlay.
+    Return centerline profiles and their continuous runs for visual overlay.
 
     Returns a list of (label, profile, runs) tuples:
-      label   – 'top' | 'bottom' | 'left' | 'right'
-      profile – 1-D float array, NaN where no edge exists
+      label   – 'h' (horizontal-band centroid) or 'v' (vertical-band centroid)
+      profile – 1-D float array, NaN where no bright pixels exist in the band/scan-line
       runs    – list of (start, end) index pairs (both inclusive)
 
-    For 'top'/'bottom' profiles: index = x-column, value = y-row.
-    For 'left'/'right' profiles: index = y-row,    value = x-column.
+    'h' profiles: index = x-column, value = centroid y-row.
+    'v' profiles: index = y-row,    value = centroid x-column.
     """
     arr = _load_image(img_path, mask_img)
-    edge_map = _find_edge_map(arr, edge_threshold)
-    labeled_profiles = _build_profiles_banded(edge_map, band_size)
+    labeled_profiles = _build_centerline_profiles_banded(arr, edge_threshold, band_size)
     return [
         (label, profile, _find_continuous_runs(profile, min_run_length))
         for label, profile in labeled_profiles
@@ -240,8 +223,7 @@ def compute_squiggliness(img_path, mask_img=None, edge_threshold=30,
       'edge_runs_analyzed' – int    (number of edge runs that contributed to the score)
     """
     arr = _load_image(img_path, mask_img)
-    edge_map = _find_edge_map(arr, edge_threshold)
-    labeled_profiles = _build_profiles_banded(edge_map, band_size)
+    labeled_profiles = _build_centerline_profiles_banded(arr, edge_threshold, band_size)
 
     arc_ratios = []
     ra_values = []
