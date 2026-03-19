@@ -8,8 +8,13 @@ import tkinter as tk
 from tkinter import filedialog
 import numpy as np
 
+from squiggliness import compute_squiggliness
+
 DEFAULT_THRESHOLD_PERCENTAGE = 50
 DEFAULT_CELL_SIZE_PX = 50
+DEFAULT_EDGE_THRESHOLD = 30
+DEFAULT_SEGMENT_LENGTH = 100
+DEFAULT_MIN_RUN_LENGTH = 50
 
 
 def _common_divisors(a, b):
@@ -41,6 +46,24 @@ def _parse_args():
         type=str,
         default="mask.png",
         help="Mask filename in the selected folder (default: mask.png).",
+    )
+    parser.add_argument(
+        "--edge-threshold",
+        type=int,
+        default=DEFAULT_EDGE_THRESHOLD,
+        help=f"Brightness threshold (0-255) for edge detection (default: {DEFAULT_EDGE_THRESHOLD}).",
+    )
+    parser.add_argument(
+        "--segment-length",
+        type=int,
+        default=DEFAULT_SEGMENT_LENGTH,
+        help=f"Segment length in pixels for Ra calculation (default: {DEFAULT_SEGMENT_LENGTH}).",
+    )
+    parser.add_argument(
+        "--min-run-length",
+        type=int,
+        default=DEFAULT_MIN_RUN_LENGTH,
+        help=f"Minimum edge run length to include in squiggliness (default: {DEFAULT_MIN_RUN_LENGTH}).",
     )
     return parser.parse_args()
 
@@ -162,23 +185,30 @@ def main():
                     total_value += 1
 
         normalised_value = round((total_value / (grid_cols * grid_rows)) * 100, 1)
-        results.append((img_file.name, normalised_value))
+        sq = compute_squiggliness(img_file, mask_img,
+                                  edge_threshold=args.edge_threshold,
+                                  segment_length=args.segment_length,
+                                  min_run_length=args.min_run_length)
+        results.append((img_file.name, normalised_value,
+                        sq['arc_length_ratio'], sq['ra_roughness'], sq['edge_runs_analyzed']))
 
     csv_filename = f"results_{cell_size_px}px_{int(threshold_percentage)}.csv"
     csv_path = os.path.join(images_folder, csv_filename)
     with open(csv_path, 'w', newline='') as csvfile:
         writer = csv.writer(csvfile)
-        writer.writerow(['Image Name', 'Normalised Value'])
-        for name, value in results:
-            writer.writerow([name, value])
+        writer.writerow(['Image Name', 'Normalised Value',
+                         'Arc-Length Ratio', 'Ra Roughness (px)', 'Edge Runs Analyzed'])
+        for row in results:
+            writer.writerow(row)
 
     print(f"Threshold Percentage: {threshold_percentage}%")
     print(f"Cell Size: {cell_size_px}px ({grid_cols}x{grid_rows})")
+    print(f"Edge Threshold: {args.edge_threshold}  |  Segment Length: {args.segment_length}px")
     print()
-    print("| Image Name | Normalised Value (out of 100) |")
-    print("|------------|-------------------------------|")
-    for name, value in results:
-        print(f"| {name} | {value:.1f} |")
+    print("| Image Name | Normalised Value | Arc-Length Ratio | Ra Roughness (px) |")
+    print("|------------|------------------|------------------|-------------------|")
+    for name, nv, alr, ra, _ in results:
+        print(f"| {name} | {nv:.1f} | {alr:.4f} | {ra:.4f} |")
 
 
 if __name__ == "__main__":

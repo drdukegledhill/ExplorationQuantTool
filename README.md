@@ -1,25 +1,29 @@
 # ExplorationQuantTool
 
-A Python tool for quantitative analysis of images using grid-based pixel density evaluation. This tool processes images by dividing them into a configurable grid and calculating the percentage of non-black pixels in each cell, then normalising the results.
+A Python tool for quantitative analysis of images using grid-based pixel density evaluation and edge squiggliness measurement. The tool processes images by dividing them into a configurable grid, calculates the percentage of non-black pixels per cell, and additionally measures the roughness/squiggliness of the edges present in each image.
 
 ## Features
 
 - **Grid Analysis**: Splits images into square cells by pixel size (default 50px).
 - **Pixel Density Calculation**: Counts non-black pixels in each grid cell.
 - **Threshold-Based Evaluation**: Assigns a value of 1 to cells where non-black pixels exceed a threshold percentage (default 50%).
-- **Normalisation**: Outputs results normalised to a scale of 0-100, regardless of grid size.
-- **Output Formats**: Generates CSV files with results.
-- **Configurable Parameters**: Easily adjust cell size (px) and threshold.
-- **GUI Version**: Interactive GUI for real-time preview and batch processing with dropdown cell sizes.
-- **Mask Support**: If `mask.png` exists in the image folder, it is applied to all images.
-- **Command-Line Version**: Script for batch processing without GUI.
+- **Normalisation**: Outputs results normalised to a scale of 0–100, regardless of grid size.
+- **Squiggliness Analysis**: Measures how straight or jagged the edges in each image are, using two complementary metrics:
+  - **Arc-Length Ratio** — ratio of actual edge path length to straight-line distance (1.0 = perfectly straight, higher = more squiggly).
+  - **Ra Roughness** — mean absolute pixel deviation of the edge from a local best-fit line per segment, analogous to the Ra surface roughness metric.
+- **Edge Overlay**: GUI displays detected edge profiles drawn as coloured lines over the image so you can see exactly what is being measured.
+- **Output Formats**: Generates CSV files with all metrics.
+- **Configurable Parameters**: Adjust cell size, threshold, edge brightness threshold, and segment length.
+- **GUI Version**: Interactive GUI for real-time preview and batch processing.
+- **Mask Support**: If `mask.png` exists in the image folder, it is applied to all images for both grid and squiggliness analysis.
+- **Command-Line Version**: Script for batch processing without a GUI.
 
 ## Requirements
 
 - Python 3.x (Python 3.6 or higher recommended)
 - Pillow (PIL) library for image processing
 - NumPy for fast pixel-level operations
-- Tkinter (usually included with Python for GUI)
+- Tkinter (usually included with Python, required for GUI)
 
 ## Installation
 
@@ -42,7 +46,7 @@ A Python tool for quantitative analysis of images using grid-based pixel density
    pip install pillow numpy
    ```
 
-**Note:** On some systems, you may need to use `python3` and `pip3` instead of `python` and `pip`. If you encounter issues, try the alternative commands.
+**Note:** On some systems, you may need to use `python3` and `pip3` instead of `python` and `pip`.
 
 ## Usage
 
@@ -53,48 +57,82 @@ A Python tool for quantitative analysis of images using grid-based pixel density
    python gui.py    # On Windows
    python3 gui.py   # On macOS/Linux
    ```
-2. Select a folder containing images.
-3. The first image will be displayed with grid overlay and normalised value.
-4. Adjust cell size (px) and threshold using the dropdown/input.
-5. The preview updates automatically on cell size change, Enter, or focus loss in the threshold field (you can still click "Update").
-6. Click "Apply to Folder" to process all images and save results to `results_{cell_size}px_{threshold}.csv`.
-7. Optional: Add a `mask.png` in the folder to exclude regions (white removes, black keeps).
+2. A folder selection dialog opens. Choose the folder containing your images.
+3. The first image is displayed with a grid overlay and all metrics in the sidebar.
+4. Adjust any parameter; the preview and metrics update automatically.
+5. Toggle **Show edge overlay** to visualise the detected edge profiles:
+   - **Red** — top edge (column-wise scan)
+   - **Orange** — bottom edge (column-wise scan)
+   - **Cyan** — left edge (row-wise scan)
+   - **Green** — right edge (row-wise scan)
+6. Click **Apply to Folder** to process all images and save results to `results_{cell_size}px_{threshold}.csv`.
+7. Click **Load New Folder** to switch to a different folder without restarting.
+8. Optional: add a `mask.png` to the folder to exclude regions (white = exclude, black = include).
 
 ### Command-Line Version
 
-1. Run the script (with optional arguments):
+1. Run the script:
    ```bash
    python run.py    # On Windows
    python3 run.py   # On macOS/Linux
    ```
    Optional arguments:
-   - `--cell-size` (int): Cell size in pixels (must divide image width/height)
-   - `--threshold` (float): Threshold percentage (default 50)
-   - `--mask` (str): Mask filename in the folder (default `mask.png`)
+   - `--cell-size` (int): Cell size in pixels (must divide image width and height).
+   - `--threshold` (float): Threshold percentage for grid analysis (default 50).
+   - `--mask` (str): Mask filename in the folder (default `mask.png`).
+   - `--edge-threshold` (int): Brightness threshold (0–255) for edge detection (default 30).
+   - `--segment-length` (int): Segment length in pixels for Ra calculation (default 100).
+   - `--min-run-length` (int): Minimum edge run length to include in squiggliness score (default 50).
 2. If `--cell-size` is not provided, the CLI will prompt you to choose from valid sizes.
-3. A folder selection dialog will appear; choose the folder containing your images.
-4. View results in the console and in `results_{cell_size_px}px_{threshold_percentage}.csv` (e.g., `results_50px_50.csv`, saved in the selected folder).
-5. Optional: Add a `mask.png` in the folder to exclude regions (white removes, black keeps).
+3. Results are printed to the console and saved to `results_{cell_size}px_{threshold}.csv` in the selected folder.
+4. Optional: add a `mask.png` to the folder to exclude regions (white = exclude, black = include).
 
 ## Configuration
 
-- `threshold_percentage`: Minimum percentage of non-black pixels required for a grid cell to be counted (default: 50).
-- `cell_size_px`: Cell size in pixels; must divide both image width and height (default: 50).
-- `mask.png`: Optional grayscale image in the folder. White removes pixels; black keeps.
+| Parameter | Default | Description |
+|---|---|---|
+| `cell_size_px` | 50 | Grid cell size in pixels; must divide both image width and height. |
+| `threshold_percentage` | 50 | Minimum % of non-black pixels for a cell to count as active. |
+| `edge_threshold` | 30 | Pixel brightness (0–255) above which a pixel is considered lit. |
+| `segment_length` | 100 | Target length in pixels for each Ra roughness segment. |
+| `min_run_length` | 50 | Minimum contiguous edge run length to include in squiggliness. |
 
 ## Output
 
-- **CSV Files**: Results saved as `results_{cell_size_px}px_{threshold_percentage}.csv` (e.g., `results_50px_50.csv`).
-- **Console** (command-line only): Displays configuration and a table with image names and normalised values.
+**CSV columns:**
+- `Image Name`
+- `Normalised Value` — grid-based density score (0–100).
+- `Arc-Length Ratio` — squiggliness metric; 1.0 = straight, higher = more squiggly.
+- `Ra Roughness (px)` — mean absolute pixel deviation from local best-fit line per segment.
+- `Edge Runs Analyzed` — number of edge profile runs that contributed to the squiggliness score.
+
+**CSV filename format:** `results_{cell_size_px}px_{threshold_percentage}.csv` (e.g. `results_50px_50.csv`).
+
+## How Squiggliness Works
+
+The analysis scans the image in two orientations:
+
+- **Column-wise**: for each pixel column, records the y-position of the topmost and bottommost edge pixel. This traces the upper and lower boundaries of bright regions across the image.
+- **Row-wise**: for each pixel row, records the x-position of the leftmost and rightmost edge pixel. This traces the left and right boundaries.
+
+Each continuous run of edge positions is then analysed independently:
+- **Arc-length ratio** = total path length along the edge / straight-line extent. A flat horizontal line scores 1.0; any deviation increases this value.
+- **Ra roughness** = the edge positions are split into segments of `segment_length` pixels. A straight line is fitted through each segment and the mean absolute deviation from that line is computed (Ra). Segments are length-weighted and averaged to produce the final score.
+
+Final scores are the arc-length-weighted average across all runs and all four profile directions.
 
 ## Example
 
 For 50px cells with a 50% threshold:
 - If 30 out of 100 cells meet the threshold, the normalised value is 30.0.
 
+For squiggliness:
+- A perfectly straight horizontal edge → Arc-Length Ratio ≈ 1.000, Ra ≈ 0.0 px.
+- A jagged, noisy edge → Arc-Length Ratio > 1.5, Ra > 10 px.
+
 ## Educational/Research Use
 
-This tool is designed for educational and research purposes. It demonstrates image processing techniques, grid-based analysis, and data normalisation. The example images in `flat-heatmaps/` and `triangle-heatmaps/` illustrate different heatmap patterns.
+This tool is designed for educational and research purposes. It demonstrates image processing techniques, grid-based analysis, edge detection, and roughness measurement. The example images in `flat-heatmaps/` and `triangle-heatmaps/` illustrate different heatmap patterns.
 
 ## Contributing
 
@@ -106,5 +144,5 @@ See LICENSE file.
 
 ## Credits
 
-Initial developer: Dr. Duke Gledhill  
+Initial developer: Dr. Duke Gledhill
 Developed for exploration and quantitative analysis of visual data.
