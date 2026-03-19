@@ -5,20 +5,21 @@ Two complementary metrics are computed:
   arc_length_ratio  — actual path length / straight-line extent (1.0 = perfectly straight)
   ra_roughness      — mean absolute pixel deviation from a local best-fit line per segment
 
-The image is divided into horizontal and vertical bands of configurable size.  Within each
-band the brightness-weighted centroid of bright pixels is computed for every scan line,
-producing a smooth curve that follows the *centre* of each line rather than its edge.
-Using multiple bands allows separate centroid traces for lines at different vertical (or
-horizontal) positions.  Smaller band_size → finer separation of internal lines.
+Bright pixels are grouped into connected components (8-connectivity).  Each component
+that is large enough gets its own independent brightness-weighted centroid trace, so the
+profile always follows a single line's centre and can never jump between separate lines.
+Components whose longer dimension is horizontal are traced column-by-column ('h');
+those that are taller than wide are traced row-by-row ('v').
 
 Each continuous centroid run is analysed independently; results are combined as an
-arc-length-weighted average across all runs and bands.
+arc-length-weighted average across all components.
 """
 
 import numpy as np
 from PIL import Image, ImageOps
+from scipy.ndimage import label as _scipy_label
 
-DEFAULT_BAND_SIZE = 200   # px — height/width of each scan band
+DEFAULT_MIN_COMPONENT_PX = 200   # minimum component size (pixels) to include in analysis
 
 
 # ---------------------------------------------------------------------------
@@ -46,6 +47,10 @@ def _skewness(x):
         return 0.0
     return float(((x - m) ** 3).mean() / s ** 3)
 
+
+# ---------------------------------------------------------------------------
+# Profile analysis
+# ---------------------------------------------------------------------------
 
 def _find_continuous_runs(profile, min_length):
     """
@@ -113,81 +118,99 @@ def _segmented_ra(profile, segment_length):
     return float(np.average(ra_values, weights=w / w.sum()))
 
 
-def _build_centerline_profiles_banded(arr, threshold, band_size):
+# ---------------------------------------------------------------------------
+# Centerline extraction
+# ---------------------------------------------------------------------------
+
+def _build_centerline_profiles_components(arr, threshold, min_component_px):
     """
-    Compute brightness-weighted centroid profiles within fixed-size bands.
+    Label 8-connected components of bright pixels and compute per-component
+    brightness-weighted centroid profiles.
 
-    For each horizontal band, the centroid y-position of bright pixels is computed
-    for every column — producing a smooth curve through the *centre* of whatever
-    line(s) pass through that band.  Vertical bands do the same in the x-direction.
-
-    Using multiple bands separates lines at different vertical/horizontal positions
-    so each gets its own independent centroid trace.
+    Each component gets an independent trace so the centroid can never average
+    across two separate lines.  The component's longer axis determines the scan
+    direction:
+      - wider than tall  → column-centroid trace, label 'h'
+      - taller than wide → row-centroid trace,    label 'v'
 
     Returns a list of (label, profile) tuples:
-      label   – 'h' (horizontal band, column-wise) or 'v' (vertical band, row-wise)
-      profile – 1-D float array (absolute pixel coordinates), NaN where no bright pixels.
+      label   – 'h' or 'v'
+      profile – 1-D float array (absolute pixel coordinates), NaN where the
+                component has no pixels in that scan line.
                 'h': index = x-column, value = centroid y-row.
                 'v': index = y-row,    value = centroid x-column.
     """
     h, w = arr.shape
-    binary = (arr > threshold).astype(float)
+    binary = arr > threshold
+
+    # 8-connectivity so diagonal lines form single components
+    struct = np.ones((3, 3), dtype=int)
+    labeled, n_components = _scipy_label(binary, structure=struct)
+
+    # Pre-compute brightness weights (use raw pixel values, not just binary)
+    brightness = arr.astype(float) * binary
+
     profiles = []
+    y_coords = np.arange(h, dtype=float)
+    x_coords = np.arange(w, dtype=float)
 
-    # Horizontal bands → column centroids (traces horizontal / diagonal lines)
-    n_hbands = max(1, round(h / band_size))
-    band_h = h // n_hbands
+    for comp_id in range(1, n_components + 1):
+        comp_mask = labeled == comp_id
+        if comp_mask.sum() < min_component_px:
+            continue
 
-    for b in range(n_hbands):
-        y0 = b * band_h
-        y1 = (b + 1) * band_h if b < n_hbands - 1 else h
-        band = binary[y0:y1, :]                              # (bh, w)
-        bright_count = band.sum(axis=0)                      # (w,)
-        y_coords = np.arange(y0, y1, dtype=float)
-        y_sum = (band * y_coords[:, np.newaxis]).sum(axis=0) # (w,)
-        centroid = np.where(
-            bright_count > 0,
-            y_sum / np.where(bright_count > 0, bright_count, 1.0),
-            np.nan,
-        )
-        profiles.append(('h', centroid))
+        comp_brightness = brightness * comp_mask
+        rows, cols = np.where(comp_mask)
+        col_extent = int(cols.max() - cols.min())
+        row_extent = int(rows.max() - rows.min())
 
-    # Vertical bands → row centroids (traces vertical / diagonal lines)
-    n_vbands = max(1, round(w / band_size))
-    band_w = w // n_vbands
-
-    for b in range(n_vbands):
-        x0 = b * band_w
-        x1 = (b + 1) * band_w if b < n_vbands - 1 else w
-        band = binary[:, x0:x1]                              # (h, bw)
-        bright_count = band.sum(axis=1)                      # (h,)
-        x_coords = np.arange(x0, x1, dtype=float)
-        x_sum = (band * x_coords[np.newaxis, :]).sum(axis=1) # (h,)
-        centroid = np.where(
-            bright_count > 0,
-            x_sum / np.where(bright_count > 0, bright_count, 1.0),
-            np.nan,
-        )
-        profiles.append(('v', centroid))
+        if col_extent >= row_extent:
+            # Primarily horizontal — trace column by column
+            col_bright = comp_brightness.sum(axis=0)        # (w,)
+            y_sum = (comp_brightness * y_coords[:, np.newaxis]).sum(axis=0)
+            centroid = np.where(
+                col_bright > 0,
+                y_sum / np.where(col_bright > 0, col_bright, 1.0),
+                np.nan,
+            )
+            profiles.append(('h', centroid))
+        else:
+            # Primarily vertical — trace row by row
+            row_bright = comp_brightness.sum(axis=1)        # (h,)
+            x_sum = (comp_brightness * x_coords[np.newaxis, :]).sum(axis=1)
+            centroid = np.where(
+                row_bright > 0,
+                x_sum / np.where(row_bright > 0, row_bright, 1.0),
+                np.nan,
+            )
+            profiles.append(('v', centroid))
 
     return profiles
 
 
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
 def get_edge_runs(img_path, mask_img=None, edge_threshold=30,
-                  band_size=DEFAULT_BAND_SIZE, min_run_length=50):
+                  min_component_px=DEFAULT_MIN_COMPONENT_PX, min_run_length=50,
+                  # legacy alias kept for callers that still pass band_size
+                  band_size=None):
     """
-    Return centerline profiles and their continuous runs for visual overlay.
+    Return per-line centerline profiles and their continuous runs for visual overlay.
 
     Returns a list of (label, profile, runs) tuples:
-      label   – 'h' (horizontal-band centroid) or 'v' (vertical-band centroid)
-      profile – 1-D float array, NaN where no bright pixels exist in the band/scan-line
+      label   – 'h' (horizontal component) or 'v' (vertical component)
+      profile – 1-D float array, NaN where the component has no pixels
       runs    – list of (start, end) index pairs (both inclusive)
 
     'h' profiles: index = x-column, value = centroid y-row.
     'v' profiles: index = y-row,    value = centroid x-column.
     """
+    if band_size is not None:
+        min_component_px = band_size   # honour legacy callers
     arr = _load_image(img_path, mask_img)
-    labeled_profiles = _build_centerline_profiles_banded(arr, edge_threshold, band_size)
+    labeled_profiles = _build_centerline_profiles_components(arr, edge_threshold, min_component_px)
     return [
         (label, profile, _find_continuous_runs(profile, min_run_length))
         for label, profile in labeled_profiles
@@ -195,8 +218,11 @@ def get_edge_runs(img_path, mask_img=None, edge_threshold=30,
 
 
 def compute_squiggliness(img_path, mask_img=None, edge_threshold=30,
-                         segment_length=100, band_size=DEFAULT_BAND_SIZE,
-                         min_run_length=50):
+                         segment_length=100,
+                         min_component_px=DEFAULT_MIN_COMPONENT_PX,
+                         min_run_length=50,
+                         # legacy alias
+                         band_size=None):
     """
     Compute squiggliness metrics for the lines in a heatmap image.
 
@@ -209,21 +235,23 @@ def compute_squiggliness(img_path, mask_img=None, edge_threshold=30,
         Brightness value (0–255) above which a pixel counts as 'lit'.
     segment_length : int
         Target length in pixels for each Ra segment.
-    band_size : int
-        Height/width in pixels of each scan band. Smaller values capture more internal
-        detail; larger values only capture the outermost boundary per direction.
+    min_component_px : int
+        Minimum connected-component size (pixels) to include.  Smaller components
+        are treated as noise and ignored.
     min_run_length : int
-        Minimum contiguous run length to include in the analysis.
+        Minimum contiguous centroid-run length to include in the analysis.
 
     Returns
     -------
     dict with:
       'arc_length_ratio'   – float  (1.0 = straight, higher = more squiggly)
       'ra_roughness'       – float  (mean absolute pixel deviation from local best-fit line)
-      'edge_runs_analyzed' – int    (number of edge runs that contributed to the score)
+      'edge_runs_analyzed' – int    (number of centroid runs that contributed to the score)
     """
+    if band_size is not None:
+        min_component_px = band_size
     arr = _load_image(img_path, mask_img)
-    labeled_profiles = _build_centerline_profiles_banded(arr, edge_threshold, band_size)
+    labeled_profiles = _build_centerline_profiles_components(arr, edge_threshold, min_component_px)
 
     arc_ratios = []
     ra_values = []
@@ -258,13 +286,10 @@ def compute_shape(img_path, mask_img=None, edge_threshold=30):
     """
     Compute shape metrics that describe the spatial distribution of bright pixels.
 
-    These metrics capture the overall layout of the bright region rather than the
-    roughness of individual edges.  Two metrics show strong statistical separation
-    between image classes (p < 0.001):
+    Two metrics show strong statistical separation between image classes (p < 0.001):
 
       vertical_centroid — normalised vertical centre of mass of all bright pixels
                           (0 = top, 1 = bottom, 0.5 = perfectly centred).
-                          Captures whether activity sits high or low in the frame.
 
       vertical_spread   — std of bright-pixel y-positions, normalised by image height.
                           Low = activity concentrated in a narrow band;
@@ -272,31 +297,22 @@ def compute_shape(img_path, mask_img=None, edge_threshold=30):
 
     A third metric provides supplementary shape information:
 
-      col_height_skewness — skewness of the per-column bright-region height profile
-                            (bottom_edge[x] − top_edge[x]).
-                            Negative = most columns are tall with a few short outliers;
-                            positive = most columns are short with a few tall ones.
+      col_height_skewness — skewness of the per-column bright-region height profile.
 
     Parameters
     ----------
     img_path : str or Path
     mask_img : PIL.Image.Image or None
-        Grayscale mask — white = exclude, black = include.
     edge_threshold : int
-        Brightness value (0–255) above which a pixel counts as 'lit'.
 
     Returns
     -------
-    dict with:
-      'vertical_centroid'  – float  (0–1, lower = activity sits higher in image)
-      'vertical_spread'    – float  (0–1, higher = more vertically dispersed)
-      'col_height_skewness'– float  (negative = tall-column-dominant distribution)
+    dict with 'vertical_centroid', 'vertical_spread', 'col_height_skewness'
     """
     arr = _load_image(img_path, mask_img)
     h, w = arr.shape
     binary = arr > edge_threshold
 
-    # Vertical centroid and spread from all bright-pixel y-positions
     ys = np.where(binary)[0]
     if len(ys) == 0:
         return {
@@ -308,12 +324,10 @@ def compute_shape(img_path, mask_img=None, edge_threshold=30):
     vertical_centroid = float(ys.mean() / (h - 1))
     vertical_spread   = float(ys.std() / h)
 
-    # Per-column bright-region height  (bottom_edge − top_edge)
     has_col = binary.any(axis=0)
-    top    = np.where(has_col, np.argmax(binary,          axis=0).astype(float), np.nan)
+    top    = np.where(has_col, np.argmax(binary, axis=0).astype(float), np.nan)
     bottom = np.where(has_col, (h - 1 - np.argmax(binary[::-1, :], axis=0)).astype(float), np.nan)
     col_heights = (bottom - top)[~np.isnan(bottom - top)]
-
     col_height_skewness = _skewness(col_heights) if len(col_heights) >= 3 else 0.0
 
     return {

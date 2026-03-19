@@ -7,7 +7,7 @@ import tkinter as tk
 from tkinter import filedialog, ttk, messagebox
 import numpy as np
 
-from squiggliness import compute_squiggliness, get_edge_runs, compute_shape, DEFAULT_BAND_SIZE
+from squiggliness import compute_squiggliness, get_edge_runs, compute_shape, DEFAULT_MIN_COMPONENT_PX
 
 MASK_FILENAME = "mask.png"
 DEFAULT_THRESHOLD_PERCENTAGE = 50
@@ -324,9 +324,9 @@ def main():
     segment_length_entry.bind("<Return>", lambda _: process_and_display())
     segment_length_entry.bind("<FocusOut>", lambda _: process_and_display())
 
-    ttk.Label(input_frame, text="Band Size (px):").grid(row=5, column=0, padx=5, sticky=tk.E)
+    ttk.Label(input_frame, text="Min Line (px):").grid(row=5, column=0, padx=5, sticky=tk.E)
     band_size_entry = ttk.Entry(input_frame, width=12)
-    band_size_entry.insert(0, str(DEFAULT_BAND_SIZE))
+    band_size_entry.insert(0, str(DEFAULT_MIN_COMPONENT_PX))
     band_size_entry.grid(row=5, column=1, padx=5)
     band_size_entry.bind("<Return>", lambda _: process_and_display())
     band_size_entry.bind("<FocusOut>", lambda _: process_and_display())

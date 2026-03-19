@@ -8,7 +8,7 @@ import tkinter as tk
 from tkinter import filedialog
 import numpy as np
 
-from squiggliness import compute_squiggliness, compute_shape, DEFAULT_BAND_SIZE
+from squiggliness import compute_squiggliness, compute_shape, DEFAULT_MIN_COMPONENT_PX
 
 DEFAULT_THRESHOLD_PERCENTAGE = 50
 DEFAULT_CELL_SIZE_PX = 50
@@ -66,10 +66,10 @@ def _parse_args():
         help=f"Minimum edge run length to include in squiggliness (default: {DEFAULT_MIN_RUN_LENGTH}).",
     )
     parser.add_argument(
-        "--band-size",
+        "--min-component-px",
         type=int,
-        default=DEFAULT_BAND_SIZE,
-        help=f"Scan band size in pixels; smaller = more internal detail (default: {DEFAULT_BAND_SIZE}).",
+        default=DEFAULT_MIN_COMPONENT_PX,
+        help=f"Minimum connected-component size in pixels to include (default: {DEFAULT_MIN_COMPONENT_PX}).",
     )
     return parser.parse_args()
 
@@ -194,7 +194,7 @@ def main():
         sq = compute_squiggliness(img_file, mask_img,
                                   edge_threshold=args.edge_threshold,
                                   segment_length=args.segment_length,
-                                  band_size=args.band_size,
+                                  min_component_px=args.min_component_px,
                                   min_run_length=args.min_run_length)
         sh = compute_shape(img_file, mask_img, edge_threshold=args.edge_threshold)
         results.append((img_file.name, normalised_value,

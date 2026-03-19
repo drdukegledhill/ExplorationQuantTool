@@ -60,11 +60,9 @@ A Python tool for quantitative analysis of images using grid-based pixel density
 2. A folder selection dialog opens. Choose the folder containing your images.
 3. The first image is displayed with a grid overlay and all metrics in the sidebar.
 4. Adjust any parameter; the preview and metrics update automatically.
-5. Toggle **Show edge overlay** to visualise the detected edge profiles:
-   - **Red** — top edge (column-wise scan)
-   - **Orange** — bottom edge (column-wise scan)
-   - **Cyan** — left edge (row-wise scan)
-   - **Green** — right edge (row-wise scan)
+5. Toggle **Show edge overlay** to visualise the detected centerline profiles:
+   - **Yellow** — horizontal components (column-by-column centroid trace)
+   - **Magenta** — vertical components (row-by-row centroid trace)
 6. Click **Apply to Folder** to process all images and save results to `results_{cell_size}px_{threshold}.csv`.
 7. Click **Load New Folder** to switch to a different folder without restarting.
 8. Optional: add a `mask.png` to the folder to exclude regions (white = exclude, black = include).
@@ -83,6 +81,7 @@ A Python tool for quantitative analysis of images using grid-based pixel density
    - `--edge-threshold` (int): Brightness threshold (0–255) for edge detection (default 30).
    - `--segment-length` (int): Segment length in pixels for Ra calculation (default 100).
    - `--min-run-length` (int): Minimum edge run length to include in squiggliness score (default 50).
+  - `--min-component-px` (int): Minimum connected-component size in pixels to include; smaller components are treated as noise (default 200).
 2. If `--cell-size` is not provided, the CLI will prompt you to choose from valid sizes.
 3. Results are printed to the console and saved to `results_{cell_size}px_{threshold}.csv` in the selected folder.
 4. Optional: add a `mask.png` to the folder to exclude regions (white = exclude, black = include).
@@ -96,6 +95,7 @@ A Python tool for quantitative analysis of images using grid-based pixel density
 | `edge_threshold` | 30 | Pixel brightness (0–255) above which a pixel is considered lit. |
 | `segment_length` | 100 | Target length in pixels for each Ra roughness segment. |
 | `min_run_length` | 50 | Minimum contiguous edge run length to include in squiggliness. |
+| `min_component_px` | 200 | Minimum connected-component size (pixels) to include; smaller components are ignored as noise. |
 
 ## Output
 
@@ -110,16 +110,17 @@ A Python tool for quantitative analysis of images using grid-based pixel density
 
 ## How Squiggliness Works
 
-The analysis scans the image in two orientations:
+Bright pixels (above `edge_threshold`) are grouped into 8-connected components. Each component large enough (≥ `min_component_px` pixels) is traced independently, so the analysis always follows a single line's centre and can never jump between separate lines.
 
-- **Column-wise**: for each pixel column, records the y-position of the topmost and bottommost edge pixel. This traces the upper and lower boundaries of bright regions across the image.
-- **Row-wise**: for each pixel row, records the x-position of the leftmost and rightmost edge pixel. This traces the left and right boundaries.
+The component's longer axis determines the scan direction:
+- **Wider than tall**: traced column-by-column — the brightness-weighted centroid y-position is recorded for each pixel column.
+- **Taller than wide**: traced row-by-row — the brightness-weighted centroid x-position is recorded for each pixel row.
 
-Each continuous run of edge positions is then analysed independently:
-- **Arc-length ratio** = total path length along the edge / straight-line extent. A flat horizontal line scores 1.0; any deviation increases this value.
-- **Ra roughness** = the edge positions are split into segments of `segment_length` pixels. A straight line is fitted through each segment and the mean absolute deviation from that line is computed (Ra). Segments are length-weighted and averaged to produce the final score.
+Each continuous run of centroid positions is then analysed independently:
+- **Arc-length ratio** = total path length along the centroid trace / straight-line extent. A flat line scores 1.0; any deviation increases this value.
+- **Ra roughness** = the centroid trace is split into segments of `segment_length` pixels. A straight line is fitted through each segment and the mean absolute deviation from that line is computed (Ra). Segments are length-weighted and averaged to produce the final score.
 
-Final scores are the arc-length-weighted average across all runs and all four profile directions.
+Final scores are the arc-length-weighted average across all runs and all components.
 
 ## Example
 
