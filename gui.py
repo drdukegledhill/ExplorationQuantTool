@@ -7,7 +7,7 @@ import tkinter as tk
 from tkinter import filedialog, ttk, messagebox
 import numpy as np
 
-from squiggliness import compute_squiggliness, get_edge_runs
+from squiggliness import compute_squiggliness, get_edge_runs, DEFAULT_BAND_SIZE
 
 MASK_FILENAME = "mask.png"
 DEFAULT_THRESHOLD_PERCENTAGE = 50
@@ -189,15 +189,16 @@ def main():
             raise ValueError
         edge_thresh = int(edge_threshold_entry.get())
         seg_len = int(segment_length_entry.get())
-        if not (0 <= edge_thresh <= 255) or seg_len < 1:
+        band_sz = int(band_size_entry.get())
+        if not (0 <= edge_thresh <= 255) or seg_len < 1 or band_sz < 1:
             raise ValueError
-        return cell_size_px, threshold, edge_thresh, seg_len
+        return cell_size_px, threshold, edge_thresh, seg_len, band_sz
 
     def process_and_display():
         if not folder_state['image_files']:
             return
         try:
-            cell_size_px, threshold, edge_thresh, seg_len = _read_inputs()
+            cell_size_px, threshold, edge_thresh, seg_len, band_sz = _read_inputs()
         except ValueError:
             messagebox.showerror("Invalid Input", "Please check all input values.")
             return
@@ -208,11 +209,12 @@ def main():
         normalised_value, img_rgb = process_image(img_path, cell_size_px, threshold, mask_img)
 
         sq = compute_squiggliness(img_path, mask_img,
-                                  edge_threshold=edge_thresh, segment_length=seg_len)
+                                  edge_threshold=edge_thresh, segment_length=seg_len,
+                                  band_size=band_sz)
 
         if show_overlay_var.get():
             runs_data = get_edge_runs(img_path, mask_img,
-                                      edge_threshold=edge_thresh, segment_length=seg_len)
+                                      edge_threshold=edge_thresh, band_size=band_sz)
             draw_edge_overlay(img_rgb, runs_data)
 
         current_img[0] = img_rgb
@@ -246,7 +248,7 @@ def main():
         if not folder_state['image_files']:
             return
         try:
-            cell_size_px, threshold, edge_thresh, seg_len = _read_inputs()
+            cell_size_px, threshold, edge_thresh, seg_len, band_sz = _read_inputs()
         except ValueError:
             messagebox.showerror("Invalid Input", "Please check all input values.")
             return
@@ -260,7 +262,8 @@ def main():
                 messagebox.showerror("Error", str(e))
                 return
             sq = compute_squiggliness(img_file, mask_img,
-                                      edge_threshold=edge_thresh, segment_length=seg_len)
+                                      edge_threshold=edge_thresh, segment_length=seg_len,
+                                      band_size=band_sz)
             results.append((img_file.name, value,
                             sq['arc_length_ratio'], sq['ra_roughness'], sq['edge_runs_analyzed']))
 
@@ -315,16 +318,23 @@ def main():
     segment_length_entry.bind("<Return>", lambda _: process_and_display())
     segment_length_entry.bind("<FocusOut>", lambda _: process_and_display())
 
+    ttk.Label(input_frame, text="Band Size (px):").grid(row=5, column=0, padx=5, sticky=tk.E)
+    band_size_entry = ttk.Entry(input_frame, width=12)
+    band_size_entry.insert(0, str(DEFAULT_BAND_SIZE))
+    band_size_entry.grid(row=5, column=1, padx=5)
+    band_size_entry.bind("<Return>", lambda _: process_and_display())
+    band_size_entry.bind("<FocusOut>", lambda _: process_and_display())
+
     # --- Edge overlay toggle ---
     show_overlay_var = tk.BooleanVar(value=True)
     ttk.Checkbutton(input_frame, text="Show edge overlay",
                     variable=show_overlay_var,
                     command=process_and_display).grid(
-        row=5, column=0, columnspan=2, pady=(6, 0))
+        row=6, column=0, columnspan=2, pady=(6, 0))
 
     # --- Colour legend ---
     legend_frame = ttk.LabelFrame(input_frame, text="Overlay colours")
-    legend_frame.grid(row=6, column=0, columnspan=2, padx=5, pady=6, sticky='ew')
+    legend_frame.grid(row=7, column=0, columnspan=2, padx=5, pady=6, sticky='ew')
     legend_items = [
         ("Top edge",    EDGE_COLOURS['top']),
         ("Bottom edge", EDGE_COLOURS['bottom']),

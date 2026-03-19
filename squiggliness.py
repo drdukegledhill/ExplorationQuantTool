@@ -5,15 +5,19 @@ Two complementary metrics are computed:
   arc_length_ratio  — actual edge path length / straight-line extent (1.0 = perfectly straight)
   ra_roughness      — mean absolute pixel deviation from a local best-fit line per segment
 
-The analysis scans the image in both orientations:
-  - Column-wise: tracks the y-position of the top and bottom edges per column (captures horizontal lines)
-  - Row-wise:    tracks the x-position of the left and right edges per row  (captures vertical lines)
+The image is divided into horizontal and vertical bands of configurable size. Within each band
+the topmost and bottommost (or leftmost and rightmost) edge pixel per scan line is recorded,
+producing one profile per band boundary. Using multiple bands captures internal lines, not just
+the outermost boundary of the bright region. Smaller band_size → finer internal detail.
+
 Each continuous run of edge positions is analysed independently; results are combined
-as an arc-length-weighted average across all runs.
+as an arc-length-weighted average across all runs and bands.
 """
 
 import numpy as np
 from PIL import Image, ImageOps
+
+DEFAULT_BAND_SIZE = 200   # px — height/width of each scan band
 
 
 def _find_edge_map(arr, threshold):
@@ -23,9 +27,7 @@ def _find_edge_map(arr, threshold):
     """
     binary = arr > threshold
     h, w = binary.shape
-    # Extend with edge-mirrored values so true image borders aren't falsely detected
     padded = np.pad(binary, 1, mode='edge')
-    # Erode: pixel survives only if all 8 neighbours are also bright
     eroded = (
         padded[0:h,   0:w]   & padded[0:h,   1:w+1] & padded[0:h,   2:w+2] &
         padded[1:h+1, 0:w]   &                         padded[1:h+1, 2:w+2] &
@@ -58,7 +60,6 @@ def _find_continuous_runs(profile, min_length):
 def _arc_length_ratio(profile):
     """
     Arc-length ratio for a 1-D profile sampled at unit intervals.
-    Each step is from (i, profile[i]) to (i+1, profile[i+1]).
     Returns arc_length / (number of steps) — equals 1.0 for a flat line.
     """
     dy = np.diff(profile)
@@ -85,8 +86,7 @@ def _segmented_ra(profile, segment_length):
 
     for i in range(n_segments):
         s = int(round(i * seg_size))
-        e = int(round((i + 1) * seg_size))
-        e = min(e, n)
+        e = min(int(round((i + 1) * seg_size)), n)
         seg = profile[s:e]
         if len(seg) < 2:
             continue
@@ -102,42 +102,69 @@ def _segmented_ra(profile, segment_length):
     return float(np.average(ra_values, weights=w / w.sum()))
 
 
-def _build_profiles(edge_map):
+def _build_profiles_banded(edge_map, band_size):
     """
-    Build four 1-D edge-position profiles from a 2-D boolean edge map.
+    Build edge-position profiles by scanning within fixed-size bands.
 
-    Column-wise (horizontal lines):
-      top_edge[x]    — y-coord of the topmost edge pixel in column x
-      bottom_edge[x] — y-coord of the bottommost edge pixel in column x
+    Divides the image into horizontal bands (for column-wise top/bottom profiles)
+    and vertical bands (for row-wise left/right profiles). Each band independently
+    finds the nearest edges within its slice, so internal lines are captured rather
+    than only the outermost boundary of the whole image.
 
-    Row-wise (vertical lines):
-      left_edge[y]   — x-coord of the leftmost edge pixel in row y
-      right_edge[y]  — x-coord of the rightmost edge pixel in row y
-
-    Positions with no edge pixel are NaN.
+    Returns a list of (label, profile) tuples where:
+      label   – 'top' | 'bottom' | 'left' | 'right'
+      profile – 1-D float array (absolute pixel coordinates), NaN where no edge.
+                For top/bottom: index = x-column, value = y-row.
+                For left/right: index = y-row,    value = x-column.
     """
     height, width = edge_map.shape
+    profiles = []
 
-    has_col = edge_map.any(axis=0)
-    top_edge = np.where(has_col,
-                        np.argmax(edge_map, axis=0).astype(float),
-                        np.nan)
-    bottom_edge = np.where(has_col,
-                           (height - 1 - np.argmax(edge_map[::-1, :], axis=0)).astype(float),
-                           np.nan)
+    # --- Horizontal bands → column-wise top/bottom profiles ---
+    n_hbands = max(1, round(height / band_size))
+    band_h = height // n_hbands
 
-    has_row = edge_map.any(axis=1)
-    left_edge = np.where(has_row,
-                         np.argmax(edge_map, axis=1).astype(float),
-                         np.nan)
-    right_edge = np.where(has_row,
-                          (width - 1 - np.argmax(edge_map[:, ::-1], axis=1)).astype(float),
+    for b in range(n_hbands):
+        y0 = b * band_h
+        y1 = (b + 1) * band_h if b < n_hbands - 1 else height
+        band = edge_map[y0:y1, :]
+        bh = y1 - y0
+
+        has_col = band.any(axis=0)
+        top = np.where(has_col,
+                       np.argmax(band, axis=0).astype(float) + y0,
+                       np.nan)
+        bottom = np.where(has_col,
+                          (bh - 1 - np.argmax(band[::-1, :], axis=0)).astype(float) + y0,
                           np.nan)
+        profiles.append(('top', top))
+        profiles.append(('bottom', bottom))
 
-    return top_edge, bottom_edge, left_edge, right_edge
+    # --- Vertical bands → row-wise left/right profiles ---
+    n_vbands = max(1, round(width / band_size))
+    band_w = width // n_vbands
+
+    for b in range(n_vbands):
+        x0 = b * band_w
+        x1 = (b + 1) * band_w if b < n_vbands - 1 else width
+        band = edge_map[:, x0:x1]
+        bw = x1 - x0
+
+        has_row = band.any(axis=1)
+        left = np.where(has_row,
+                        np.argmax(band, axis=1).astype(float) + x0,
+                        np.nan)
+        right = np.where(has_row,
+                         (bw - 1 - np.argmax(band[:, ::-1], axis=1)).astype(float) + x0,
+                         np.nan)
+        profiles.append(('left', left))
+        profiles.append(('right', right))
+
+    return profiles
 
 
-def get_edge_runs(img_path, mask_img=None, edge_threshold=30, min_run_length=50):
+def get_edge_runs(img_path, mask_img=None, edge_threshold=30,
+                  band_size=DEFAULT_BAND_SIZE, min_run_length=50):
     """
     Return edge profiles and their continuous runs for visual overlay.
 
@@ -156,16 +183,16 @@ def get_edge_runs(img_path, mask_img=None, edge_threshold=30, min_run_length=50)
         img = Image.composite(img, black_bg, ImageOps.invert(mask_img))
     arr = np.array(img)
     edge_map = _find_edge_map(arr, edge_threshold)
-    top, bottom, left, right = _build_profiles(edge_map)
-    labels = ('top', 'bottom', 'left', 'right')
+    labeled_profiles = _build_profiles_banded(edge_map, band_size)
     return [
         (label, profile, _find_continuous_runs(profile, min_run_length))
-        for label, profile in zip(labels, (top, bottom, left, right))
+        for label, profile in labeled_profiles
     ]
 
 
 def compute_squiggliness(img_path, mask_img=None, edge_threshold=30,
-                         segment_length=100, min_run_length=50):
+                         segment_length=100, band_size=DEFAULT_BAND_SIZE,
+                         min_run_length=50):
     """
     Compute squiggliness metrics for the lines in a heatmap image.
 
@@ -178,6 +205,9 @@ def compute_squiggliness(img_path, mask_img=None, edge_threshold=30,
         Brightness value (0–255) above which a pixel counts as 'lit'.
     segment_length : int
         Target length in pixels for each Ra segment.
+    band_size : int
+        Height/width in pixels of each scan band. Smaller values capture more internal
+        detail; larger values only capture the outermost boundary per direction.
     min_run_length : int
         Minimum contiguous run length to include in the analysis.
 
@@ -197,13 +227,13 @@ def compute_squiggliness(img_path, mask_img=None, edge_threshold=30,
 
     arr = np.array(img)
     edge_map = _find_edge_map(arr, edge_threshold)
-    profiles = _build_profiles(edge_map)
+    labeled_profiles = _build_profiles_banded(edge_map, band_size)
 
     arc_ratios = []
     ra_values = []
     arc_lengths = []
 
-    for profile in profiles:
+    for _label, profile in labeled_profiles:
         runs = _find_continuous_runs(profile, min_run_length)
         for start, end in runs:
             seg = profile[start:end + 1]
