@@ -20,6 +20,32 @@ from PIL import Image, ImageOps
 DEFAULT_BAND_SIZE = 200   # px — height/width of each scan band
 
 
+# ---------------------------------------------------------------------------
+# Shared helpers
+# ---------------------------------------------------------------------------
+
+def _load_image(img_path, mask_img):
+    """Load image as greyscale, apply mask if provided."""
+    with Image.open(img_path) as raw:
+        img = raw.convert('L')
+    if mask_img is not None:
+        black_bg = Image.new('L', img.size, 0)
+        img = Image.composite(img, black_bg, ImageOps.invert(mask_img))
+    return np.array(img)
+
+
+def _skewness(x):
+    """Sample skewness (Fisher's moment coefficient), numpy-only."""
+    n = len(x)
+    if n < 3:
+        return 0.0
+    m = x.mean()
+    s = x.std(ddof=1)
+    if s == 0:
+        return 0.0
+    return float(((x - m) ** 3).mean() / s ** 3)
+
+
 def _find_edge_map(arr, threshold):
     """
     Return a boolean array marking the 1-pixel-thick boundary of bright regions.
@@ -176,12 +202,7 @@ def get_edge_runs(img_path, mask_img=None, edge_threshold=30,
     For 'top'/'bottom' profiles: index = x-column, value = y-row.
     For 'left'/'right' profiles: index = y-row,    value = x-column.
     """
-    with Image.open(img_path) as raw:
-        img = raw.convert('L')
-    if mask_img is not None:
-        black_bg = Image.new('L', img.size, 0)
-        img = Image.composite(img, black_bg, ImageOps.invert(mask_img))
-    arr = np.array(img)
+    arr = _load_image(img_path, mask_img)
     edge_map = _find_edge_map(arr, edge_threshold)
     labeled_profiles = _build_profiles_banded(edge_map, band_size)
     return [
@@ -218,14 +239,7 @@ def compute_squiggliness(img_path, mask_img=None, edge_threshold=30,
       'ra_roughness'       – float  (mean absolute pixel deviation from local best-fit line)
       'edge_runs_analyzed' – int    (number of edge runs that contributed to the score)
     """
-    with Image.open(img_path) as raw:
-        img = raw.convert('L')
-
-    if mask_img is not None:
-        black_bg = Image.new('L', img.size, 0)
-        img = Image.composite(img, black_bg, ImageOps.invert(mask_img))
-
-    arr = np.array(img)
+    arr = _load_image(img_path, mask_img)
     edge_map = _find_edge_map(arr, edge_threshold)
     labeled_profiles = _build_profiles_banded(edge_map, band_size)
 
@@ -255,4 +269,73 @@ def compute_squiggliness(img_path, mask_img=None, edge_threshold=30,
         'arc_length_ratio': round(float(np.average(arc_ratios, weights=w)), 4),
         'ra_roughness': round(float(np.average(ra_values, weights=w)), 4),
         'edge_runs_analyzed': len(arc_ratios),
+    }
+
+
+def compute_shape(img_path, mask_img=None, edge_threshold=30):
+    """
+    Compute shape metrics that describe the spatial distribution of bright pixels.
+
+    These metrics capture the overall layout of the bright region rather than the
+    roughness of individual edges.  Two metrics show strong statistical separation
+    between image classes (p < 0.001):
+
+      vertical_centroid — normalised vertical centre of mass of all bright pixels
+                          (0 = top, 1 = bottom, 0.5 = perfectly centred).
+                          Captures whether activity sits high or low in the frame.
+
+      vertical_spread   — std of bright-pixel y-positions, normalised by image height.
+                          Low = activity concentrated in a narrow band;
+                          high = activity spread across the full vertical range.
+
+    A third metric provides supplementary shape information:
+
+      col_height_skewness — skewness of the per-column bright-region height profile
+                            (bottom_edge[x] − top_edge[x]).
+                            Negative = most columns are tall with a few short outliers;
+                            positive = most columns are short with a few tall ones.
+
+    Parameters
+    ----------
+    img_path : str or Path
+    mask_img : PIL.Image.Image or None
+        Grayscale mask — white = exclude, black = include.
+    edge_threshold : int
+        Brightness value (0–255) above which a pixel counts as 'lit'.
+
+    Returns
+    -------
+    dict with:
+      'vertical_centroid'  – float  (0–1, lower = activity sits higher in image)
+      'vertical_spread'    – float  (0–1, higher = more vertically dispersed)
+      'col_height_skewness'– float  (negative = tall-column-dominant distribution)
+    """
+    arr = _load_image(img_path, mask_img)
+    h, w = arr.shape
+    binary = arr > edge_threshold
+
+    # Vertical centroid and spread from all bright-pixel y-positions
+    ys = np.where(binary)[0]
+    if len(ys) == 0:
+        return {
+            'vertical_centroid':   0.5,
+            'vertical_spread':     0.0,
+            'col_height_skewness': 0.0,
+        }
+
+    vertical_centroid = float(ys.mean() / (h - 1))
+    vertical_spread   = float(ys.std() / h)
+
+    # Per-column bright-region height  (bottom_edge − top_edge)
+    has_col = binary.any(axis=0)
+    top    = np.where(has_col, np.argmax(binary,          axis=0).astype(float), np.nan)
+    bottom = np.where(has_col, (h - 1 - np.argmax(binary[::-1, :], axis=0)).astype(float), np.nan)
+    col_heights = (bottom - top)[~np.isnan(bottom - top)]
+
+    col_height_skewness = _skewness(col_heights) if len(col_heights) >= 3 else 0.0
+
+    return {
+        'vertical_centroid':   round(vertical_centroid,   4),
+        'vertical_spread':     round(vertical_spread,     4),
+        'col_height_skewness': round(col_height_skewness, 4),
     }

@@ -8,7 +8,7 @@ import tkinter as tk
 from tkinter import filedialog
 import numpy as np
 
-from squiggliness import compute_squiggliness, DEFAULT_BAND_SIZE
+from squiggliness import compute_squiggliness, compute_shape, DEFAULT_BAND_SIZE
 
 DEFAULT_THRESHOLD_PERCENTAGE = 50
 DEFAULT_CELL_SIZE_PX = 50
@@ -196,15 +196,19 @@ def main():
                                   segment_length=args.segment_length,
                                   band_size=args.band_size,
                                   min_run_length=args.min_run_length)
+        sh = compute_shape(img_file, mask_img, edge_threshold=args.edge_threshold)
         results.append((img_file.name, normalised_value,
-                        sq['arc_length_ratio'], sq['ra_roughness'], sq['edge_runs_analyzed']))
+                        sq['arc_length_ratio'], sq['ra_roughness'], sq['edge_runs_analyzed'],
+                        sh['vertical_centroid'], sh['vertical_spread'],
+                        sh['col_height_skewness']))
 
     csv_filename = f"results_{cell_size_px}px_{int(threshold_percentage)}.csv"
     csv_path = os.path.join(images_folder, csv_filename)
     with open(csv_path, 'w', newline='') as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(['Image Name', 'Normalised Value',
-                         'Arc-Length Ratio', 'Ra Roughness (px)', 'Edge Runs Analyzed'])
+                         'Arc-Length Ratio', 'Ra Roughness (px)', 'Edge Runs Analyzed',
+                         'Vertical Centroid', 'Vertical Spread', 'Col-Height Skewness'])
         for row in results:
             writer.writerow(row)
 
@@ -212,10 +216,10 @@ def main():
     print(f"Cell Size: {cell_size_px}px ({grid_cols}x{grid_rows})")
     print(f"Edge Threshold: {args.edge_threshold}  |  Segment Length: {args.segment_length}px")
     print()
-    print("| Image Name | Normalised Value | Arc-Length Ratio | Ra Roughness (px) |")
-    print("|------------|------------------|------------------|-------------------|")
-    for name, nv, alr, ra, _ in results:
-        print(f"| {name} | {nv:.1f} | {alr:.4f} | {ra:.4f} |")
+    print("| Image Name | Normalised Value | Arc-Length Ratio | Ra Roughness (px) | Vert. Centroid | Vert. Spread | Col-Height Skew |")
+    print("|------------|------------------|------------------|-------------------|----------------|--------------|-----------------|")
+    for name, nv, alr, ra, _runs, vc, vs, chs in results:
+        print(f"| {name} | {nv:.1f} | {alr:.4f} | {ra:.4f} | {vc:.4f} | {vs:.4f} | {chs:.4f} |")
 
 
 if __name__ == "__main__":

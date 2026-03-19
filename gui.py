@@ -7,7 +7,7 @@ import tkinter as tk
 from tkinter import filedialog, ttk, messagebox
 import numpy as np
 
-from squiggliness import compute_squiggliness, get_edge_runs, DEFAULT_BAND_SIZE
+from squiggliness import compute_squiggliness, get_edge_runs, compute_shape, DEFAULT_BAND_SIZE
 
 MASK_FILENAME = "mask.png"
 DEFAULT_THRESHOLD_PERCENTAGE = 50
@@ -211,6 +211,7 @@ def main():
         sq = compute_squiggliness(img_path, mask_img,
                                   edge_threshold=edge_thresh, segment_length=seg_len,
                                   band_size=band_sz)
+        sh = compute_shape(img_path, mask_img, edge_threshold=edge_thresh)
 
         if show_overlay_var.get():
             runs_data = get_edge_runs(img_path, mask_img,
@@ -223,6 +224,9 @@ def main():
         arc_label.config(text=f"Arc-Length Ratio: {sq['arc_length_ratio']:.4f}")
         ra_label.config(text=f"Ra Roughness: {sq['ra_roughness']:.4f} px")
         runs_label.config(text=f"Edge Runs: {sq['edge_runs_analyzed']}")
+        centroid_label.config(text=f"Vert. Centroid: {sh['vertical_centroid']:.4f}")
+        spread_label.config(text=f"Vert. Spread: {sh['vertical_spread']:.4f}")
+        skew_label.config(text=f"Col-Height Skew: {sh['col_height_skewness']:.4f}")
         display_image()
 
     def display_image():
@@ -264,15 +268,19 @@ def main():
             sq = compute_squiggliness(img_file, mask_img,
                                       edge_threshold=edge_thresh, segment_length=seg_len,
                                       band_size=band_sz)
+            sh = compute_shape(img_file, mask_img, edge_threshold=edge_thresh)
             results.append((img_file.name, value,
-                            sq['arc_length_ratio'], sq['ra_roughness'], sq['edge_runs_analyzed']))
+                            sq['arc_length_ratio'], sq['ra_roughness'], sq['edge_runs_analyzed'],
+                            sh['vertical_centroid'], sh['vertical_spread'],
+                            sh['col_height_skewness']))
 
         csv_filename = f"results_{cell_size_px}px_{int(threshold)}.csv"
         csv_path = folder_state['images_folder'] / csv_filename
         with open(csv_path, 'w', newline='') as csvfile:
             writer = csv.writer(csvfile)
             writer.writerow(['Image Name', 'Normalised Value',
-                             'Arc-Length Ratio', 'Ra Roughness (px)', 'Edge Runs Analyzed'])
+                             'Arc-Length Ratio', 'Ra Roughness (px)', 'Edge Runs Analyzed',
+                             'Vertical Centroid', 'Vertical Spread', 'Col-Height Skewness'])
             for row in results:
                 writer.writerow(row)
         messagebox.showinfo("Done", f"Results saved to {csv_filename}")
@@ -377,6 +385,15 @@ def main():
     runs_label = ttk.Label(metrics_frame, text="Edge Runs: —",
                            font=("Helvetica", 11), foreground="gray")
     runs_label.pack(anchor=tk.W, pady=2)
+
+    ttk.Separator(metrics_frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=6)
+
+    centroid_label = ttk.Label(metrics_frame, text="Vert. Centroid: —", font=("Helvetica", 12))
+    centroid_label.pack(anchor=tk.W, pady=2)
+    spread_label = ttk.Label(metrics_frame, text="Vert. Spread: —", font=("Helvetica", 12))
+    spread_label.pack(anchor=tk.W, pady=2)
+    skew_label = ttk.Label(metrics_frame, text="Col-Height Skew: —", font=("Helvetica", 12))
+    skew_label.pack(anchor=tk.W, pady=2)
 
     # ------------------------------------------------------------------ #
     # Initial load                                                         #
