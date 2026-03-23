@@ -8,7 +8,8 @@ import tkinter as tk
 from tkinter import filedialog
 import numpy as np
 
-from squiggliness import compute_squiggliness, compute_shape, DEFAULT_MIN_COMPONENT_PX
+from squiggliness import (compute_squiggliness, compute_shape,
+                          DEFAULT_MIN_TRACK_LENGTH, DEFAULT_MAX_JUMP)
 
 DEFAULT_THRESHOLD_PERCENTAGE = 50
 DEFAULT_CELL_SIZE_PX = 50
@@ -18,6 +19,7 @@ DEFAULT_MIN_RUN_LENGTH = 50
 
 
 def _common_divisors(a, b):
+    # Cell size must divide both dimensions; valid sizes are divisors of gcd(width, height).
     gcd_value = math.gcd(a, b)
     divisors = set()
     limit = int(math.isqrt(gcd_value))
@@ -66,10 +68,16 @@ def _parse_args():
         help=f"Minimum edge run length to include in squiggliness (default: {DEFAULT_MIN_RUN_LENGTH}).",
     )
     parser.add_argument(
-        "--min-component-px",
+        "--min-track",
         type=int,
-        default=DEFAULT_MIN_COMPONENT_PX,
-        help=f"Minimum connected-component size in pixels to include (default: {DEFAULT_MIN_COMPONENT_PX}).",
+        default=DEFAULT_MIN_TRACK_LENGTH,
+        help=f"Minimum tracked scan-positions for a centerline to include (default: {DEFAULT_MIN_TRACK_LENGTH}).",
+    )
+    parser.add_argument(
+        "--max-jump",
+        type=int,
+        default=DEFAULT_MAX_JUMP,
+        help=f"Maximum pixel distance between adjacent centroids for the same track (default: {DEFAULT_MAX_JUMP}).",
     )
     return parser.parse_args()
 
@@ -180,6 +188,9 @@ def main():
 
             img_array = np.array(img)
 
+        # Grid score algorithm:
+        # 1) split into fixed-size cells, 2) count cells above threshold,
+        # 3) normalise to percentage of active cells.
         total_value = 0
         for col in range(grid_cols):
             for row in range(grid_rows):
@@ -191,10 +202,13 @@ def main():
                     total_value += 1
 
         normalised_value = round((total_value / (grid_cols * grid_rows)) * 100, 1)
+        # Squiggliness/shape metrics are calculated from the same masked image,
+        # so all outputs refer to the same analyzed region.
         sq = compute_squiggliness(img_file, mask_img,
                                   edge_threshold=args.edge_threshold,
                                   segment_length=args.segment_length,
-                                  min_component_px=args.min_component_px,
+                                  min_track_length=args.min_track,
+                                  max_jump=args.max_jump,
                                   min_run_length=args.min_run_length)
         sh = compute_shape(img_file, mask_img, edge_threshold=args.edge_threshold)
         results.append((img_file.name, normalised_value,

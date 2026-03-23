@@ -7,7 +7,8 @@ import tkinter as tk
 from tkinter import filedialog, ttk, messagebox
 import numpy as np
 
-from squiggliness import compute_squiggliness, get_edge_runs, compute_shape, DEFAULT_MIN_COMPONENT_PX
+from squiggliness import (compute_squiggliness, get_edge_runs, compute_shape,
+                          DEFAULT_MIN_TRACK_LENGTH, DEFAULT_MAX_JUMP)
 
 MASK_FILENAME = "mask.png"
 DEFAULT_THRESHOLD_PERCENTAGE = 50
@@ -17,12 +18,13 @@ DEFAULT_SEGMENT_LENGTH = 100
 
 # Colours used to draw each centerline profile on the overlay
 EDGE_COLOURS = {
-    'h': (255, 220,  0),    # yellow  — horizontal-band centroids
-    'v': (220,  80, 255),   # magenta — vertical-band centroids
+    'h': (255, 220,  0),    # yellow  — horizontally-tracked centroids
+    'v': (220,  80, 255),   # magenta — vertically-tracked centroids
 }
 
 
 def _common_divisors(a, b):
+    # GUI cell-size options are restricted to values that tile the image exactly.
     gcd_value = math.gcd(a, b)
     divisors = set()
     limit = int(math.isqrt(gcd_value))
@@ -43,6 +45,7 @@ def process_image(img_path, cell_size_px, threshold_percentage, mask_img):
         raise ValueError("Mask size does not match image size.")
 
     if mask_img is not None:
+        # Keep only black regions of the mask (white = excluded area).
         black_bg = Image.new('L', img.size, 0)
         img = Image.composite(img, black_bg, ImageOps.invert(mask_img))
 
@@ -51,6 +54,7 @@ def process_image(img_path, cell_size_px, threshold_percentage, mask_img):
     grid_rows = height // cell_size_px
 
     img_array = np.array(img)
+    # Same algorithm as CLI: count cells whose non-black density meets threshold.
     total_value = 0
     for col in range(grid_cols):
         for row in range(grid_rows):
@@ -89,6 +93,7 @@ def draw_edge_overlay(img_rgb, edge_run_data):
     for label, profile, runs in edge_run_data:
         colour = EDGE_COLOURS[label]
         for start, end in runs:
+            # Convert each 1D centroid profile segment into drawable 2D points.
             seg = profile[start:end + 1]
             if label == 'h':
                 pts = [(start + i, int(round(seg[i]))) for i in range(len(seg))]
@@ -179,41 +184,48 @@ def main():
     # Analysis & display                                                   #
     # ------------------------------------------------------------------ #
 
+    # Debounce: fire process_and_display 200 ms after last slider movement
+    _update_job = [None]
+
+    def _debounce_update(*_):
+        if _update_job[0] is not None:
+            root.after_cancel(_update_job[0])
+        _update_job[0] = root.after(200, process_and_display)
+
     def _read_inputs():
-        """Parse and validate all control values. Raises ValueError on bad input."""
+        """Read all control values."""
         cell_size_px = int(cell_size_combo.get())
-        threshold = float(threshold_entry.get())
-        if not (0 <= threshold <= 100):
-            raise ValueError
-        edge_thresh = int(edge_threshold_entry.get())
-        seg_len = int(segment_length_entry.get())
-        band_sz = int(band_size_entry.get())
-        if not (0 <= edge_thresh <= 255) or seg_len < 1 or band_sz < 1:
-            raise ValueError
-        return cell_size_px, threshold, edge_thresh, seg_len, band_sz
+        threshold    = float(threshold_scale.get())
+        edge_thresh  = int(edge_threshold_scale.get())
+        seg_len      = int(segment_length_scale.get())
+        min_track    = int(min_track_scale.get())
+        max_jump     = int(max_jump_scale.get())
+        return cell_size_px, threshold, edge_thresh, seg_len, min_track, max_jump
 
     def process_and_display():
         if not folder_state['image_files']:
             return
         try:
-            cell_size_px, threshold, edge_thresh, seg_len, band_sz = _read_inputs()
-        except ValueError:
-            messagebox.showerror("Invalid Input", "Please check all input values.")
+            cell_size_px, threshold, edge_thresh, seg_len, min_track, max_jump = _read_inputs()
+        except (ValueError, tk.TclError):
             return
 
         img_path = folder_state['current_img_path']
         mask_img = folder_state['mask_img']
 
+        # Compute grid score first, then append squiggliness + shape descriptors.
         normalised_value, img_rgb = process_image(img_path, cell_size_px, threshold, mask_img)
 
         sq = compute_squiggliness(img_path, mask_img,
                                   edge_threshold=edge_thresh, segment_length=seg_len,
-                                  band_size=band_sz)
+                                  min_track_length=min_track, max_jump=max_jump)
         sh = compute_shape(img_path, mask_img, edge_threshold=edge_thresh)
 
         if show_overlay_var.get():
+            # Overlay uses the exact same tracking parameters as metric computation.
             runs_data = get_edge_runs(img_path, mask_img,
-                                      edge_threshold=edge_thresh, band_size=band_sz)
+                                      edge_threshold=edge_thresh,
+                                      min_track_length=min_track, max_jump=max_jump)
             draw_edge_overlay(img_rgb, runs_data)
 
         current_img[0] = img_rgb
@@ -250,8 +262,8 @@ def main():
         if not folder_state['image_files']:
             return
         try:
-            cell_size_px, threshold, edge_thresh, seg_len, band_sz = _read_inputs()
-        except ValueError:
+            cell_size_px, threshold, edge_thresh, seg_len, min_track, max_jump = _read_inputs()
+        except (ValueError, tk.TclError):
             messagebox.showerror("Invalid Input", "Please check all input values.")
             return
 
@@ -263,9 +275,10 @@ def main():
             except ValueError as e:
                 messagebox.showerror("Error", str(e))
                 return
+            # Batch mode mirrors preview mode so CSV values match what the user sees.
             sq = compute_squiggliness(img_file, mask_img,
                                       edge_threshold=edge_thresh, segment_length=seg_len,
-                                      band_size=band_sz)
+                                      min_track_length=min_track, max_jump=max_jump)
             sh = compute_shape(img_file, mask_img, edge_threshold=edge_thresh)
             results.append((img_file.name, value,
                             sq['arc_length_ratio'], sq['ra_roughness'], sq['edge_runs_analyzed'],
@@ -293,54 +306,49 @@ def main():
     input_frame = ttk.Frame(root)
     input_frame.pack(pady=10)
 
+    SLIDER_W = 160   # slider widget width in pixels
+
+    def _make_slider(parent, row, label_text, from_, to, resolution, default):
+        ttk.Label(parent, text=label_text).grid(row=row, column=0, padx=5, sticky=tk.E)
+        scale = tk.Scale(parent, from_=from_, to=to, resolution=resolution,
+                         orient=tk.HORIZONTAL, length=SLIDER_W, showvalue=True,
+                         command=_debounce_update)
+        scale.set(default)
+        scale.grid(row=row, column=1, padx=5, sticky='ew')
+        return scale
+
     # --- Grid analysis controls ---
     ttk.Label(input_frame, text="Cell Size (px):").grid(row=0, column=0, padx=5, sticky=tk.E)
     cell_size_combo = ttk.Combobox(input_frame, values=[], state="readonly", width=10)
     cell_size_combo.grid(row=0, column=1, padx=5)
     cell_size_combo.bind("<<ComboboxSelected>>", lambda _: process_and_display())
 
-    ttk.Label(input_frame, text="Threshold (%):").grid(row=1, column=0, padx=5, sticky=tk.E)
-    threshold_entry = ttk.Entry(input_frame, width=12)
-    threshold_entry.insert(0, str(DEFAULT_THRESHOLD_PERCENTAGE))
-    threshold_entry.grid(row=1, column=1, padx=5)
-    threshold_entry.bind("<Return>", lambda _: process_and_display())
-    threshold_entry.bind("<FocusOut>", lambda _: process_and_display())
+    threshold_scale = _make_slider(input_frame, 1, "Threshold (%):",
+                                   0, 100, 1, DEFAULT_THRESHOLD_PERCENTAGE)
 
     # --- Squiggliness controls ---
     ttk.Separator(input_frame, orient=tk.HORIZONTAL).grid(
         row=2, column=0, columnspan=2, sticky='ew', pady=6)
 
-    ttk.Label(input_frame, text="Edge Threshold (0-255):").grid(row=3, column=0, padx=5, sticky=tk.E)
-    edge_threshold_entry = ttk.Entry(input_frame, width=12)
-    edge_threshold_entry.insert(0, str(DEFAULT_EDGE_THRESHOLD))
-    edge_threshold_entry.grid(row=3, column=1, padx=5)
-    edge_threshold_entry.bind("<Return>", lambda _: process_and_display())
-    edge_threshold_entry.bind("<FocusOut>", lambda _: process_and_display())
-
-    ttk.Label(input_frame, text="Segment Length (px):").grid(row=4, column=0, padx=5, sticky=tk.E)
-    segment_length_entry = ttk.Entry(input_frame, width=12)
-    segment_length_entry.insert(0, str(DEFAULT_SEGMENT_LENGTH))
-    segment_length_entry.grid(row=4, column=1, padx=5)
-    segment_length_entry.bind("<Return>", lambda _: process_and_display())
-    segment_length_entry.bind("<FocusOut>", lambda _: process_and_display())
-
-    ttk.Label(input_frame, text="Min Line (px):").grid(row=5, column=0, padx=5, sticky=tk.E)
-    band_size_entry = ttk.Entry(input_frame, width=12)
-    band_size_entry.insert(0, str(DEFAULT_MIN_COMPONENT_PX))
-    band_size_entry.grid(row=5, column=1, padx=5)
-    band_size_entry.bind("<Return>", lambda _: process_and_display())
-    band_size_entry.bind("<FocusOut>", lambda _: process_and_display())
+    edge_threshold_scale = _make_slider(input_frame, 3, "Edge Threshold (0-255):",
+                                        0, 255, 1, DEFAULT_EDGE_THRESHOLD)
+    segment_length_scale = _make_slider(input_frame, 4, "Segment Length (px):",
+                                        5, 500, 5, DEFAULT_SEGMENT_LENGTH)
+    min_track_scale      = _make_slider(input_frame, 5, "Min Track (pts):",
+                                        5, 300, 5, DEFAULT_MIN_TRACK_LENGTH)
+    max_jump_scale       = _make_slider(input_frame, 6, "Max Jump (px):",
+                                        2, 100, 2, DEFAULT_MAX_JUMP)
 
     # --- Edge overlay toggle ---
     show_overlay_var = tk.BooleanVar(value=True)
     ttk.Checkbutton(input_frame, text="Show edge overlay",
                     variable=show_overlay_var,
                     command=process_and_display).grid(
-        row=6, column=0, columnspan=2, pady=(6, 0))
+        row=7, column=0, columnspan=2, pady=(6, 0))
 
     # --- Colour legend ---
     legend_frame = ttk.LabelFrame(input_frame, text="Overlay colours")
-    legend_frame.grid(row=7, column=0, columnspan=2, padx=5, pady=6, sticky='ew')
+    legend_frame.grid(row=8, column=0, columnspan=2, padx=5, pady=6, sticky='ew')
     legend_items = [
         ("Horizontal centroids", EDGE_COLOURS['h']),
         ("Vertical centroids",   EDGE_COLOURS['v']),

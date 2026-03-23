@@ -5,21 +5,25 @@ Two complementary metrics are computed:
   arc_length_ratio  — actual path length / straight-line extent (1.0 = perfectly straight)
   ra_roughness      — mean absolute pixel deviation from a local best-fit line per segment
 
-Bright pixels are grouped into connected components (8-connectivity).  Each component
-that is large enough gets its own independent brightness-weighted centroid trace, so the
-profile always follows a single line's centre and can never jump between separate lines.
-Components whose longer dimension is horizontal are traced column-by-column ('h');
-those that are taller than wide are traced row-by-row ('v').
+For each pixel column the image is scanned to find all distinct bright-pixel runs.
+Each run's brightness-weighted centroid is tracked across adjacent columns using a
+greedy nearest-neighbour linker, producing one independent centroid trace per detected
+line.  The same process is repeated row-by-row for lines with a vertical orientation.
+Tracks shorter than min_track_length positions are discarded as noise.
 
 Each continuous centroid run is analysed independently; results are combined as an
-arc-length-weighted average across all components.
+arc-length-weighted average across all tracks.
 """
 
 import numpy as np
 from PIL import Image, ImageOps
-from scipy.ndimage import label as _scipy_label
 
-DEFAULT_MIN_COMPONENT_PX = 200   # minimum component size (pixels) to include in analysis
+DEFAULT_MIN_TRACK_LENGTH = 30    # minimum scan-positions for a tracked centerline
+DEFAULT_MAX_JUMP = 25            # maximum pixel distance between adjacent centroids
+
+# Legacy aliases
+DEFAULT_MIN_COMPONENT_PX = DEFAULT_MIN_TRACK_LENGTH
+DEFAULT_BAND_SIZE = DEFAULT_MIN_TRACK_LENGTH
 
 
 # ---------------------------------------------------------------------------
@@ -119,71 +123,127 @@ def _segmented_ra(profile, segment_length):
 
 
 # ---------------------------------------------------------------------------
-# Centerline extraction
+# Centerline extraction — multi-run tracking
 # ---------------------------------------------------------------------------
 
-def _build_centerline_profiles_components(arr, threshold, min_component_px):
+def _find_run_centroids(values, binary):
     """
-    Label 8-connected components of bright pixels and compute per-component
-    brightness-weighted centroid profiles.
+    Brightness-weighted centroid of each consecutive bright run in a 1-D array.
 
-    Each component gets an independent trace so the centroid can never average
-    across two separate lines.  The component's longer axis determines the scan
-    direction:
-      - wider than tall  → column-centroid trace, label 'h'
-      - taller than wide → row-centroid trace,    label 'v'
+    values  – raw pixel brightness (used as weights)
+    binary  – boolean array (True where pixel is above threshold)
+    Returns a list of float centroid positions.
+    """
+    if not binary.any():
+        return []
+    padded = np.concatenate(([False], binary.astype(bool), [False]))
+    starts = np.where(~padded[:-1] & padded[1:])[0]   # F→T transitions → run start
+    ends   = np.where( padded[:-1] & ~padded[1:])[0]  # T→F transitions → exclusive end
+    centroids = []
+    for s, e in zip(starts, ends):
+        vals = values[s:e].astype(float)
+        w_sum = vals.sum()
+        if w_sum > 0:
+            pos = np.arange(s, e, dtype=float)
+            centroids.append(float((pos * vals).sum() / w_sum))
+    return centroids
+
+
+def _track_centroids(scan_length, get_centroids_fn, max_jump, max_gap=5):
+    """
+    Greedy nearest-neighbour tracker across scan positions.
+
+    At each scan position, centroids are matched to the nearest active track
+    within max_jump pixels.  Unmatched centroids start new tracks.  Tracks
+    with no match for more than max_gap consecutive positions are retired.
+
+    Returns a list of tracks; each track is a list of (pos, centroid) pairs.
+    """
+    tracks = {}     # id → [(pos, centroid), ...]
+    active = {}     # id → (last_pos, last_centroid)
+    next_id = 0
+
+    for pos in range(scan_length):
+        centroids = get_centroids_fn(pos)
+        available = {tid: d for tid, d in active.items() if pos - d[0] <= max_gap}
+
+        matched_t = set()
+        matched_c = set()
+
+        if available and centroids:
+            pairs = []
+            for tid, (_, last_y) in available.items():
+                for ci, cy in enumerate(centroids):
+                    dist = abs(cy - last_y)
+                    if dist <= max_jump:
+                        pairs.append((dist, tid, ci))
+            pairs.sort()
+            for dist, tid, ci in pairs:
+                if tid in matched_t or ci in matched_c:
+                    continue
+                tracks[tid].append((pos, centroids[ci]))
+                active[tid] = (pos, centroids[ci])
+                matched_t.add(tid)
+                matched_c.add(ci)
+
+        for ci, cy in enumerate(centroids):
+            if ci not in matched_c:
+                tracks[next_id] = [(pos, cy)]
+                active[next_id] = (pos, cy)
+                next_id += 1
+
+        stale = [tid for tid, (lp, _) in active.items() if pos - lp > max_gap]
+        for tid in stale:
+            del active[tid]
+
+    return list(tracks.values())
+
+
+def _build_centerline_profiles_multiscan(arr, threshold, min_track_length, max_jump):
+    """
+    Scan the image column-by-column and row-by-row, tracking brightness-weighted
+    centroids of each bright-pixel run into independent per-line profiles.
+
+    Each distinct line gets its own trace regardless of whether it touches or
+    crosses other lines.
 
     Returns a list of (label, profile) tuples:
-      label   – 'h' or 'v'
-      profile – 1-D float array (absolute pixel coordinates), NaN where the
-                component has no pixels in that scan line.
-                'h': index = x-column, value = centroid y-row.
-                'v': index = y-row,    value = centroid x-column.
+      'h': index = x-column, value = centroid y-row
+      'v': index = y-row,    value = centroid x-column
     """
     h, w = arr.shape
     binary = arr > threshold
-
-    # 8-connectivity so diagonal lines form single components
-    struct = np.ones((3, 3), dtype=int)
-    labeled, n_components = _scipy_label(binary, structure=struct)
-
-    # Pre-compute brightness weights (use raw pixel values, not just binary)
-    brightness = arr.astype(float) * binary
+    max_gap = 5
 
     profiles = []
-    y_coords = np.arange(h, dtype=float)
-    x_coords = np.arange(w, dtype=float)
 
-    for comp_id in range(1, n_components + 1):
-        comp_mask = labeled == comp_id
-        if comp_mask.sum() < min_component_px:
+    # Horizontal scan (column by column) — tracks lines with horizontal extent
+    h_raw = _track_centroids(
+        w,
+        lambda x: _find_run_centroids(arr[:, x], binary[:, x]),
+        max_jump, max_gap,
+    )
+    for points in h_raw:
+        if len(points) < min_track_length:
             continue
+        profile = np.full(w, np.nan)
+        for x, y in points:
+            profile[x] = y
+        profiles.append(('h', profile))
 
-        comp_brightness = brightness * comp_mask
-        rows, cols = np.where(comp_mask)
-        col_extent = int(cols.max() - cols.min())
-        row_extent = int(rows.max() - rows.min())
-
-        if col_extent >= row_extent:
-            # Primarily horizontal — trace column by column
-            col_bright = comp_brightness.sum(axis=0)        # (w,)
-            y_sum = (comp_brightness * y_coords[:, np.newaxis]).sum(axis=0)
-            centroid = np.where(
-                col_bright > 0,
-                y_sum / np.where(col_bright > 0, col_bright, 1.0),
-                np.nan,
-            )
-            profiles.append(('h', centroid))
-        else:
-            # Primarily vertical — trace row by row
-            row_bright = comp_brightness.sum(axis=1)        # (h,)
-            x_sum = (comp_brightness * x_coords[np.newaxis, :]).sum(axis=1)
-            centroid = np.where(
-                row_bright > 0,
-                x_sum / np.where(row_bright > 0, row_bright, 1.0),
-                np.nan,
-            )
-            profiles.append(('v', centroid))
+    # Vertical scan (row by row) — tracks lines with vertical extent
+    v_raw = _track_centroids(
+        h,
+        lambda y: _find_run_centroids(arr[y, :], binary[y, :]),
+        max_jump, max_gap,
+    )
+    for points in v_raw:
+        if len(points) < min_track_length:
+            continue
+        profile = np.full(h, np.nan)
+        for y, x in points:
+            profile[y] = x
+        profiles.append(('v', profile))
 
     return profiles
 
@@ -193,24 +253,26 @@ def _build_centerline_profiles_components(arr, threshold, min_component_px):
 # ---------------------------------------------------------------------------
 
 def get_edge_runs(img_path, mask_img=None, edge_threshold=30,
-                  min_component_px=DEFAULT_MIN_COMPONENT_PX, min_run_length=50,
-                  # legacy alias kept for callers that still pass band_size
-                  band_size=None):
+                  min_track_length=DEFAULT_MIN_TRACK_LENGTH,
+                  max_jump=DEFAULT_MAX_JUMP,
+                  min_run_length=50,
+                  # legacy aliases
+                  min_component_px=None, band_size=None):
     """
     Return per-line centerline profiles and their continuous runs for visual overlay.
 
     Returns a list of (label, profile, runs) tuples:
-      label   – 'h' (horizontal component) or 'v' (vertical component)
-      profile – 1-D float array, NaN where the component has no pixels
+      label   – 'h' (horizontal scan) or 'v' (vertical scan)
+      profile – 1-D float array, NaN where the track has no data
       runs    – list of (start, end) index pairs (both inclusive)
-
-    'h' profiles: index = x-column, value = centroid y-row.
-    'v' profiles: index = y-row,    value = centroid x-column.
     """
     if band_size is not None:
-        min_component_px = band_size   # honour legacy callers
+        min_track_length = band_size
+    if min_component_px is not None:
+        min_track_length = min_component_px
     arr = _load_image(img_path, mask_img)
-    labeled_profiles = _build_centerline_profiles_components(arr, edge_threshold, min_component_px)
+    labeled_profiles = _build_centerline_profiles_multiscan(
+        arr, edge_threshold, min_track_length, max_jump)
     return [
         (label, profile, _find_continuous_runs(profile, min_run_length))
         for label, profile in labeled_profiles
@@ -219,10 +281,11 @@ def get_edge_runs(img_path, mask_img=None, edge_threshold=30,
 
 def compute_squiggliness(img_path, mask_img=None, edge_threshold=30,
                          segment_length=100,
-                         min_component_px=DEFAULT_MIN_COMPONENT_PX,
+                         min_track_length=DEFAULT_MIN_TRACK_LENGTH,
+                         max_jump=DEFAULT_MAX_JUMP,
                          min_run_length=50,
-                         # legacy alias
-                         band_size=None):
+                         # legacy aliases
+                         min_component_px=None, band_size=None):
     """
     Compute squiggliness metrics for the lines in a heatmap image.
 
@@ -230,14 +293,14 @@ def compute_squiggliness(img_path, mask_img=None, edge_threshold=30,
     ----------
     img_path : str or Path
     mask_img : PIL.Image.Image or None
-        Grayscale mask — white = exclude, black = include (same convention as main tool).
     edge_threshold : int
         Brightness value (0–255) above which a pixel counts as 'lit'.
     segment_length : int
         Target length in pixels for each Ra segment.
-    min_component_px : int
-        Minimum connected-component size (pixels) to include.  Smaller components
-        are treated as noise and ignored.
+    min_track_length : int
+        Minimum number of scan positions for a tracked centerline to be included.
+    max_jump : int
+        Maximum pixel distance between consecutive centroids for the same track.
     min_run_length : int
         Minimum contiguous centroid-run length to include in the analysis.
 
@@ -249,9 +312,12 @@ def compute_squiggliness(img_path, mask_img=None, edge_threshold=30,
       'edge_runs_analyzed' – int    (number of centroid runs that contributed to the score)
     """
     if band_size is not None:
-        min_component_px = band_size
+        min_track_length = band_size
+    if min_component_px is not None:
+        min_track_length = min_component_px
     arr = _load_image(img_path, mask_img)
-    labeled_profiles = _build_centerline_profiles_components(arr, edge_threshold, min_component_px)
+    labeled_profiles = _build_centerline_profiles_multiscan(
+        arr, edge_threshold, min_track_length, max_jump)
 
     arc_ratios = []
     ra_values = []

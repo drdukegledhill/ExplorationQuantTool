@@ -14,6 +14,7 @@ A Python tool for quantitative analysis of images using grid-based pixel density
 - **Edge Overlay**: GUI displays detected edge profiles drawn as coloured lines over the image so you can see exactly what is being measured.
 - **Output Formats**: Generates CSV files with all metrics.
 - **Configurable Parameters**: Adjust cell size, threshold, edge brightness threshold, and segment length.
+ - **Configurable Parameters**: Adjust cell size, threshold, edge brightness threshold, segment length, and centerline tracking controls.
 - **GUI Version**: Interactive GUI for real-time preview and batch processing.
 - **Mask Support**: If `mask.png` exists in the image folder, it is applied to all images for both grid and squiggliness analysis.
 - **Command-Line Version**: Script for batch processing without a GUI.
@@ -81,7 +82,8 @@ A Python tool for quantitative analysis of images using grid-based pixel density
    - `--edge-threshold` (int): Brightness threshold (0–255) for edge detection (default 30).
    - `--segment-length` (int): Segment length in pixels for Ra calculation (default 100).
    - `--min-run-length` (int): Minimum edge run length to include in squiggliness score (default 50).
-  - `--min-component-px` (int): Minimum connected-component size in pixels to include; smaller components are treated as noise (default 200).
+   - `--min-track` (int): Minimum tracked scan-positions for a centerline to be included (default from `squiggliness.py`).
+   - `--max-jump` (int): Maximum pixel distance allowed between adjacent centroids in one tracked centerline (default from `squiggliness.py`).
 2. If `--cell-size` is not provided, the CLI will prompt you to choose from valid sizes.
 3. Results are printed to the console and saved to `results_{cell_size}px_{threshold}.csv` in the selected folder.
 4. Optional: add a `mask.png` to the folder to exclude regions (white = exclude, black = include).
@@ -95,7 +97,8 @@ A Python tool for quantitative analysis of images using grid-based pixel density
 | `edge_threshold` | 30 | Pixel brightness (0–255) above which a pixel is considered lit. |
 | `segment_length` | 100 | Target length in pixels for each Ra roughness segment. |
 | `min_run_length` | 50 | Minimum contiguous edge run length to include in squiggliness. |
-| `min_component_px` | 200 | Minimum connected-component size (pixels) to include; smaller components are ignored as noise. |
+| `min_track` | from `squiggliness.py` | Minimum number of tracked scan-positions required for a centerline. |
+| `max_jump` | from `squiggliness.py` | Maximum pixel jump allowed between adjacent centroids in the same track. |
 
 ## Output
 
@@ -105,6 +108,9 @@ A Python tool for quantitative analysis of images using grid-based pixel density
 - `Arc-Length Ratio` — squiggliness metric; 1.0 = straight, higher = more squiggly.
 - `Ra Roughness (px)` — mean absolute pixel deviation from local best-fit line per segment.
 - `Edge Runs Analyzed` — number of edge profile runs that contributed to the squiggliness score.
+- `Vertical Centroid` — brightness-weighted average vertical position of lit content (normalised 0–1).
+- `Vertical Spread` — vertical dispersion of lit content (normalised).
+- `Col-Height Skewness` — skewness of per-column lit heights (shape asymmetry indicator).
 
 **CSV filename format:** `results_{cell_size_px}px_{threshold_percentage}.csv` (e.g. `results_50px_50.csv`).
 
