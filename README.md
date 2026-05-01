@@ -118,5 +118,6 @@ See LICENSE file.
 
 ## Credits
 
-Initial developer: Dr. Duke Gledhill
-Developed for exploration and quantitative analysis of visual data.
+- **Dr. Duke Gledhill** — initial developer
+- **Jack Beddows** — collaborator; data collection
+- **Chris Dewey** — collaborator
