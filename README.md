@@ -90,6 +90,15 @@ A Python tool for quantitative analysis of images using grid-based pixel density
 
 **CSV filename format:** `results_{cell_size_px}px_{threshold_percentage}.csv` (e.g. `results_50px_50.csv`).
 
+## Example Data
+
+Two folders of greyscale heatmap images are included so you can try the tool straight away:
+
+- **`flat-heatmaps/`** — 17 images with a uniform flat heatmap pattern. No mask is included, so the full image is analysed.
+- **`triangle-heatmaps/`** — 17 images with a triangular heatmap pattern, plus a `mask.png` that excludes the background and restricts analysis to the triangle region.
+
+To run the GUI on either folder, start `gui.py` and select the folder when prompted. To run the CLI, pass `--cell-size` or accept the default and select the folder from the dialog.
+
 ## Example
 
 For 50px cells with a 50% threshold:
@@ -97,7 +106,7 @@ For 50px cells with a 50% threshold:
 
 ## Educational/Research Use
 
-This tool is designed for educational and research purposes. It demonstrates image processing techniques and grid-based analysis. The example images in `flat-heatmaps/` and `triangle-heatmaps/` illustrate different heatmap patterns.
+This tool is designed for educational and research purposes. It demonstrates image processing techniques and grid-based analysis.
 
 ## Contributing
 
